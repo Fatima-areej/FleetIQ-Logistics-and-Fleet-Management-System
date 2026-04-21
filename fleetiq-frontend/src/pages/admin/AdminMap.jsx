@@ -1,0 +1,475 @@
+import { useEffect, useState } from 'react';
+import React from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { T } from '../../styles/theme';
+import API from '../../api/axios';
+import { SkeletonCard } from '../../components/ui/Skeleton';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+    iconUrl:       'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+    shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+const makeIcon = (emoji, color) => new L.DivIcon({
+    html: `<div style="
+        background:${color};
+        width:34px;height:34px;border-radius:10px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:16px;
+        box-shadow:0 0 0 2px rgba(255,255,255,0.15), 0 4px 12px rgba(0,0,0,0.5);
+        border:1.5px solid rgba(255,255,255,0.2);
+        backdrop-filter:blur(4px);
+    ">${emoji}</div>`,
+    className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+});
+
+const warehouseIcon = makeIcon('🏭', '#4F46E5');
+const vehicleAvailIcon = makeIcon('🚗', '#059669');
+const vehicleInUseIcon = makeIcon('🚚', '#D97706');
+const vehicleMaintIcon = makeIcon('🔧', '#DC2626');
+const shipmentIcon     = makeIcon('📦', '#0284C7');
+
+export default function AdminMap() {
+    const [mapData,  setMapData]  = useState(null);
+    const [loading,  setLoading]  = useState(true);
+    const [showWh,   setShowWh]   = useState(true);
+    const [showVeh,  setShowVeh]  = useState(true);
+    const [showShip, setShowShip] = useState(true);
+    const [selected, setSelected] = useState(null);
+
+    const fetchData = () => {
+        setLoading(true);
+        API.get('/geo/map-data')
+            .then(r => setMapData(r.data))
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => { fetchData(); }, []);
+
+    const counts = {
+        warehouses: mapData?.warehouses?.length || 0,
+        vehicles:   mapData?.vehicles?.length   || 0,
+        shipments:  mapData?.shipments?.length  || 0,
+    };
+
+    const getVehicleIcon = (status) =>
+        status === 'available'   ? vehicleAvailIcon :
+        status === 'maintenance' ? vehicleMaintIcon :
+        vehicleInUseIcon;
+
+    return (
+        <div style={{
+            animation: 'fadeIn 0.2s ease',
+            height: 'calc(100vh - 112px)',
+            display: 'flex', flexDirection: 'column', gap: 12,
+        }}>
+            <style>{`
+                .leaflet-container {
+                    background: #060810 !important;
+                    font-family: 'DM Sans', sans-serif !important;
+                }
+                .leaflet-popup-content-wrapper {
+                    background: #0c0f1d !important;
+                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
+                    color: #F1F5F9 !important;
+                    padding: 0 !important;
+                }
+                .leaflet-popup-content {
+                    margin: 0 !important;
+                    font-family: 'DM Sans', sans-serif !important;
+                }
+                .leaflet-popup-tip {
+                    background: #0c0f1d !important;
+                }
+                .leaflet-popup-close-button {
+                    color: #94A3B8 !important;
+                    font-size: 18px !important;
+                    top: 8px !important;
+                    right: 8px !important;
+                }
+                .leaflet-control-zoom {
+                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    border-radius: 10px !important;
+                    overflow: hidden;
+                }
+                .leaflet-control-zoom a {
+                    background: #0c0f1d !important;
+                    color: #94A3B8 !important;
+                    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+                    width: 32px !important; height: 32px !important;
+                    line-height: 32px !important;
+                }
+                .leaflet-control-zoom a:hover {
+                    background: #4F46E5 !important;
+                    color: #fff !important;
+                }
+                .leaflet-attribution-flag { display: none !important; }
+                .leaflet-control-attribution {
+                    background: rgba(6,8,16,0.7) !important;
+                    color: rgba(255,255,255,0.2) !important;
+                    font-size: 9px !important;
+                    border-radius: 6px !important;
+                }
+                .leaflet-control-attribution a { color: rgba(255,255,255,0.3) !important; }
+            `}</style>
+
+            {/* ── CONTROL BAR ── */}
+            <div style={{
+                display: 'flex', gap: 8, alignItems: 'center',
+                flexWrap: 'wrap',
+            }}>
+                {/* layer toggles */}
+                {[
+                    { key: 'wh',   label: 'Warehouses', count: counts.warehouses,
+                      color: '#4F46E5', val: showWh,   set: setShowWh   },
+                    { key: 'veh',  label: 'Vehicles',   count: counts.vehicles,
+                      color: '#D97706', val: showVeh,  set: setShowVeh  },
+                    { key: 'ship', label: 'Shipments',  count: counts.shipments,
+                      color: '#0284C7', val: showShip, set: setShowShip },
+                ].map(item => (
+                    <button key={item.key}
+                        onClick={() => item.set(v => !v)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '7px 14px',
+                            background: item.val
+                                ? `rgba(${hexToRgb(item.color)},0.12)`
+                                : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${item.val
+                                ? item.color + '40'
+                                : 'rgba(255,255,255,0.08)'}`,
+                            borderRadius: 8, cursor: 'pointer',
+                            fontSize: 12, fontWeight: item.val ? 600 : 400,
+                            color: item.val ? item.color : 'rgba(255,255,255,0.4)',
+                            transition: 'all 0.15s',
+                            fontFamily: 'DM Sans, sans-serif',
+                        }}>
+                        <span style={{
+                            width: 7, height: 7, borderRadius: '50%',
+                            background: item.val ? item.color : 'rgba(255,255,255,0.2)',
+                            boxShadow: item.val ? `0 0 6px ${item.color}` : 'none',
+                            transition: 'all 0.15s',
+                        }} />
+                        {item.label}
+                        <span style={{
+                            background: item.val
+                                ? `rgba(${hexToRgb(item.color)},0.2)` : 'rgba(255,255,255,0.05)',
+                            color: item.val ? item.color : 'rgba(255,255,255,0.25)',
+                            fontSize: 10, fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: 99,
+                        }}>
+                            {item.count}
+                        </span>
+                    </button>
+                ))}
+
+                {/* vehicle status legend */}
+                <div style={{
+                    display: 'flex', gap: 10, alignItems: 'center',
+                    padding: '7px 14px',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 8, fontSize: 11,
+                    color: 'rgba(255,255,255,0.4)',
+                    fontFamily: 'DM Sans, sans-serif',
+                }}>
+                    {[
+                        { label: 'Available',    color: '#059669' },
+                        { label: 'In use',       color: '#D97706' },
+                        { label: 'Maintenance',  color: '#DC2626' },
+                    ].map(v => (
+                        <span key={v.label} style={{ display: 'flex',
+                                                      alignItems: 'center',
+                                                      gap: 5 }}>
+                            <span style={{
+                                width: 6, height: 6, borderRadius: '50%',
+                                background: v.color,
+                                boxShadow: `0 0 4px ${v.color}`,
+                            }} />
+                            {v.label}
+                        </span>
+                    ))}
+                </div>
+
+                <button onClick={fetchData} style={{
+                    marginLeft: 'auto',
+                    padding: '7px 14px',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 8, cursor: 'pointer',
+                    fontSize: 12, color: 'rgba(255,255,255,0.4)',
+                    fontFamily: 'DM Sans, sans-serif',
+                    transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(79,70,229,0.12)';
+                    e.currentTarget.style.color = '#4F46E5';
+                    e.currentTarget.style.borderColor = '#4F46E550';
+                }}
+                onMouseLeave={e => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                    e.currentTarget.style.color = 'rgba(255,255,255,0.4)';
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                }}>
+                    ↻ Refresh
+                </button>
+            </div>
+
+            {/* ── MAP ── */}
+            <div style={{
+                flex: 1, borderRadius: 16, overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 0 0 1px rgba(79,70,229,0.1), 0 20px 60px rgba(0,0,0,0.5)',
+                position: 'relative',
+            }}>
+                {loading ? (
+                    <div style={{
+                        height: '100%', background: '#060810',
+                        display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexDirection: 'column', gap: 12,
+                    }}>
+                        <div style={{
+                            width: 32, height: 32,
+                            border: '2px solid rgba(255,255,255,0.1)',
+                            borderTop: '2px solid #4F46E5',
+                            borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                        }} />
+                        <p style={{ color: 'rgba(255,255,255,0.3)',
+                                    fontSize: 13, margin: 0,
+                                    fontFamily: 'DM Sans, sans-serif' }}>
+                            Loading map data...
+                        </p>
+                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                    </div>
+                ) : (
+                    <MapContainer
+                        center={[30.3753, 69.3451]}
+                        zoom={6}
+                        style={{ height: '100%', width: '100%' }}
+                        zoomControl={true}
+                    >
+                        <TileLayer
+                            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                            maxZoom={19}
+                        />
+
+                        {showWh && mapData?.warehouses?.map((w, i) => (
+                            w.latitude && w.longitude && (
+                                <React.Fragment key={`wh-${i}`}>
+                                    <Marker
+                                        position={[w.latitude, w.longitude]}
+                                        icon={warehouseIcon}
+                                        eventHandlers={{
+                                            click: () => setSelected({
+                                                type: 'warehouse', data: w
+                                            }),
+                                        }}
+                                    >
+                                        <Popup>
+                                            <PopupCard
+                                                icon="🏭"
+                                                title={w.name}
+                                                subtitle={`📍 ${w.city}`}
+                                                color="#4F46E5"
+                                                rows={[
+                                                    ['Load', `${w.current_load} / ${w.capacity_units}`],
+                                                    ['Usage', `${Math.round((w.current_load / Math.max(w.capacity_units, 1)) * 100)}%`],
+                                                ]}
+                                            />
+                                        </Popup>
+                                    </Marker>
+                                    <Circle
+                                        center={[w.latitude, w.longitude]}
+                                        radius={20000}
+                                        color="#4F46E5"
+                                        fillColor="#4F46E5"
+                                        fillOpacity={0.04}
+                                        weight={0.8}
+                                        dashArray="4 4"
+                                    />
+                                </React.Fragment>
+                            )
+                        ))}
+
+                        {showVeh && mapData?.vehicles?.map((v, i) => (
+                            v.latitude && v.longitude && (
+                                <Marker
+                                    key={`veh-${i}`}
+                                    position={[v.latitude, v.longitude]}
+                                    icon={getVehicleIcon(v.status)}
+                                >
+                                    <Popup>
+                                        <PopupCard
+                                            icon="🚚"
+                                            title={v.plate_number}
+                                            subtitle={v.vehicle_type}
+                                            color={
+                                                v.status === 'available'   ? '#059669' :
+                                                v.status === 'maintenance' ? '#DC2626' :
+                                                '#D97706'
+                                            }
+                                            rows={[
+                                                ['Status', v.status],
+                                            ]}
+                                        />
+                                    </Popup>
+                                </Marker>
+                            )
+                        ))}
+
+                        {showShip && mapData?.shipments?.map((s, i) => (
+                            s.latitude && s.longitude && (
+                                <Marker
+                                    key={`ship-${i}`}
+                                    position={[s.latitude, s.longitude]}
+                                    icon={shipmentIcon}
+                                >
+                                    <Popup>
+                                        <PopupCard
+                                            icon="📦"
+                                            title={`Shipment #${s.shipment_id}`}
+                                            subtitle={s.destination_address}
+                                            color="#0284C7"
+                                            rows={[
+                                                ['Driver',   s.driver_name || 'Unassigned'],
+                                                ['Priority', s.priority],
+                                                ['Status',   s.status?.replace(/_/g,' ')],
+                                            ]}
+                                        />
+                                    </Popup>
+                                </Marker>
+                            )
+                        ))}
+                    </MapContainer>
+                )}
+
+                {/* bottom stats overlay */}
+                {!loading && (
+                    <div style={{
+                        position: 'absolute', bottom: 16, left: 16,
+                        zIndex: 1000,
+                        display: 'flex', gap: 8,
+                    }}>
+                        {[
+                            { label: 'Warehouses',  value: counts.warehouses,
+                              color: '#4F46E5' },
+                            { label: 'Vehicles',    value: counts.vehicles,
+                              color: '#D97706' },
+                            { label: 'Shipments',   value: counts.shipments,
+                              color: '#0284C7' },
+                        ].map(s => (
+                            <div key={s.label} style={{
+                                padding: '6px 12px',
+                                background: 'rgba(6,8,16,0.85)',
+                                backdropFilter: 'blur(8px)',
+                                border: `1px solid ${s.color}30`,
+                                borderRadius: 8,
+                                display: 'flex', alignItems: 'center', gap: 7,
+                            }}>
+                                <span style={{
+                                    width: 6, height: 6, borderRadius: '50%',
+                                    background: s.color,
+                                    boxShadow: `0 0 6px ${s.color}`,
+                                }} />
+                                <span style={{
+                                    fontSize: 11, fontWeight: 700,
+                                    color: '#fff',
+                                    fontFamily: 'DM Sans, sans-serif',
+                                }}>
+                                    {s.value}
+                                </span>
+                                <span style={{
+                                    fontSize: 10,
+                                    color: 'rgba(255,255,255,0.35)',
+                                    fontFamily: 'DM Sans, sans-serif',
+                                }}>
+                                    {s.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ── popup card ───────────────────────────────────────────────
+function PopupCard({ icon, title, subtitle, color, rows }) {
+    return (
+        <div style={{
+            padding: '14px 16px', minWidth: 180,
+            fontFamily: 'DM Sans, sans-serif',
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center',
+                          gap: 8, marginBottom: 8 }}>
+                <div style={{
+                    width: 28, height: 28, borderRadius: 7,
+                    background: color + '20',
+                    border: `1px solid ${color}40`,
+                    display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: 14,
+                }}>
+                    {icon}
+                </div>
+                <div>
+                    <div style={{ fontWeight: 700, fontSize: 13,
+                                  color: '#F1F5F9', lineHeight: 1.2 }}>
+                        {title}
+                    </div>
+                    {subtitle && (
+                        <div style={{ fontSize: 11, color: '#94A3B8',
+                                      marginTop: 1,
+                                      maxWidth: 160, overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap' }}>
+                            {subtitle}
+                        </div>
+                    )}
+                </div>
+            </div>
+            {rows?.length > 0 && (
+                <div style={{
+                    borderTop: '1px solid rgba(255,255,255,0.07)',
+                    paddingTop: 8, display: 'flex', flexDirection: 'column',
+                    gap: 4,
+                }}>
+                    {rows.map(([label, val]) => (
+                        <div key={label} style={{
+                            display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'center',
+                        }}>
+                            <span style={{ fontSize: 11,
+                                           color: 'rgba(255,255,255,0.35)' }}>
+                                {label}
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 600,
+                                           color: '#F1F5F9',
+                                           textTransform: 'capitalize' }}>
+                                {val}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// helper
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return `${r},${g},${b}`;
+}
