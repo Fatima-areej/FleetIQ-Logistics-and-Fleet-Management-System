@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-    LineChart, Line, PieChart, Pie, Cell, Legend, AreaChart, Area,
+    Line, PieChart, Pie, Cell, Legend, AreaChart, Area,
 } from 'recharts';
 import { T } from '../../styles/theme';
 import API from '../../api/axios';

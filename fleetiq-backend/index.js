@@ -26,6 +26,7 @@ app.use('/api/vehicles',      require('./routes/vehicles'));
 app.use('/api/warehouses',    require('./routes/warehouses'));
 app.use('/api/analytics',     require('./routes/analytics'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/maintenance-requests', require('./routes/maintenanceRequests'));
 app.use('/api/memos',         require('./routes/memos'));
 app.use('/api/geo',           require('./routes/geo'));
 

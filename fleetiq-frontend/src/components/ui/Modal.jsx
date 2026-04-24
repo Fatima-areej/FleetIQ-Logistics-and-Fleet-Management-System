@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { T } from '../../styles/theme';
-import Btn from './Btn';
 
 export default function Modal({ title, onClose, children, width = 440 }) {
     useEffect(() => {
@@ -15,7 +14,7 @@ export default function Modal({ title, onClose, children, width = 440 }) {
         <div style={{
             position:       'fixed',
             inset:          0,
-            background:     'rgba(15, 23, 41, 0.45)',
+            background:     T.overlay,
             backdropFilter: 'blur(4px)',
             display:        'flex',
             alignItems:     'center',
@@ -32,6 +31,7 @@ export default function Modal({ title, onClose, children, width = 440 }) {
                 maxWidth:     width,
                 maxHeight:    '85vh',
                 overflowY:    'auto',
+                border:       `1px solid ${T.border}`,
                 boxShadow:    T.shadowXl,
                 animation:    'slideUp 0.2s ease',
             }} onClick={e => e.stopPropagation()}>

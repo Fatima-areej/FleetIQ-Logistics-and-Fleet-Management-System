@@ -2,12 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import API from '../api/axios';
-
-// inject fonts
-const link1 = document.createElement('link');
-link1.href = 'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap';
-link1.rel = 'stylesheet';
-document.head.appendChild(link1);
+import { T } from '../styles/theme';
 
 // ── animated network canvas ──────────────────────────────────
 function NetworkCanvas() {
@@ -54,7 +49,7 @@ function NetworkCanvas() {
             ctx.clearRect(0, 0, W, H);
 
             // grid lines background
-            ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+            ctx.strokeStyle = 'rgba(15,23,42,0.06)';
             ctx.lineWidth = 1;
             const GRID = 50;
             for (let x = 0; x < W; x += GRID) {
@@ -128,7 +123,7 @@ function NetworkCanvas() {
                 // trail
                 ctx.beginPath();
                 ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(255,255,255,0.9)`;
+                ctx.fillStyle = 'rgba(79,70,229,0.95)';
                 ctx.fill();
 
                 // glow
@@ -176,7 +171,7 @@ function StatTicker() {
             }, 300);
         }, 2400);
         return () => clearInterval(interval);
-    }, []);
+    }, [stats.length]);
 
     const s = stats[idx];
     return (
@@ -192,15 +187,15 @@ function StatTicker() {
                 animation: 'pulse 1.5s infinite',
             }} />
             <span style={{
-                fontSize: 11, color: 'rgba(255,255,255,0.45)',
+                fontSize: 11, color: T.textMuted,
                 letterSpacing: '0.1em', textTransform: 'uppercase',
-                fontFamily: 'DM Sans',
+                fontFamily: T.fontBody,
             }}>
                 {s.label}
             </span>
             <span style={{
-                fontSize: 13, color: 'rgba(255,255,255,0.85)',
-                fontWeight: 600, fontFamily: 'DM Sans',
+                fontSize: 13, color: T.textPri,
+                fontWeight: 600, fontFamily: T.fontBody,
             }}>
                 {s.value}
             </span>
@@ -208,14 +203,49 @@ function StatTicker() {
     );
 }
 
+function signupLabelSx(isFocused) {
+    return {
+        display: 'block', fontSize: 11, fontWeight: 600,
+        color: isFocused ? T.accent : T.textMuted,
+        letterSpacing: '0.1em', textTransform: 'uppercase',
+        marginBottom: 8, transition: 'color 0.2s',
+    };
+}
+
+function signupInputSx(isFocused) {
+    return {
+        width: '100%',
+        padding: '13px 16px',
+        background: T.inputBg,
+        border: `1px solid ${isFocused ? T.borderFocus : T.border}`,
+        borderRadius: 10,
+        color: T.textPri, fontSize: 14,
+        outline: 'none', boxSizing: 'border-box',
+        fontFamily: T.fontBody,
+        transition: 'border-color 0.2s, background 0.2s',
+    };
+}
+
 // ── main login component ─────────────────────────────────────
 export default function Login() {
+    const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+
     const [email,    setEmail]    = useState('');
     const [password, setPassword] = useState('');
     const [error,    setError]    = useState('');
     const [loading,  setLoading]  = useState(false);
     const [focused,  setFocused]  = useState(null);
     const [entered,  setEntered]  = useState(false);
+
+    const [orgName, setOrgName] = useState('');
+    const [industry, setIndustry] = useState('');
+    const [phone, setPhone] = useState('');
+    const [adminName, setAdminName] = useState('');
+    const [signupEmail, setSignupEmail] = useState('');
+    const [signupPassword, setSignupPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [authorized, setAuthorized] = useState(false);
+
     const { login }  = useAuth();
     const navigate   = useNavigate();
 
@@ -242,12 +272,59 @@ export default function Login() {
         }
     };
 
+    const handleSignup = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+        try {
+            const res = await API.post('/auth/register-organization', {
+                organization_name: orgName,
+                industry: industry || undefined,
+                phone: phone || undefined,
+                admin_name: adminName,
+                email: signupEmail,
+                password: signupPassword,
+                confirm_password: confirmPassword,
+                authorized,
+            });
+            login(res.data.user, res.data.token);
+            navigate('/admin');
+        } catch (err) {
+            setError(err.response?.data?.error || 'Registration failed.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const switchToSignin = () => {
+        setMode('signin');
+        setError('');
+        setOrgName('');
+        setIndustry('');
+        setPhone('');
+        setAdminName('');
+        setSignupEmail('');
+        setSignupPassword('');
+        setConfirmPassword('');
+        setAuthorized(false);
+    };
+
+    const switchToSignup = () => {
+        setMode('signup');
+        setError('');
+        setEmail('');
+        setPassword('');
+    };
+
     return (
         <div style={{
-            display: 'flex', minHeight: '100vh',
-            background: '#060810',
-            fontFamily: 'DM Sans, sans-serif',
-            overflow: 'hidden',
+            minHeight: '100vh',
+            background: T.pageBg,
+            backgroundImage: T.pageBgGradient,
+            backgroundAttachment: 'fixed',
+            fontFamily: T.fontBody,
+            padding: 'clamp(16px, 3vw, 28px)',
+            boxSizing: 'border-box',
         }}>
             <style>{`
                 @keyframes pulse {
@@ -266,47 +343,55 @@ export default function Login() {
                     from { opacity:0; transform:translateY(16px); }
                     to   { opacity:1; transform:translateY(0);    }
                 }
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
                 @keyframes scanline {
                     0%   { transform:translateY(-100%); }
                     100% { transform:translateY(100vh); }
                 }
-                .login-input::placeholder { color: rgba(255,255,255,0.2); }
-                .login-input::-webkit-input-placeholder { color: rgba(255,255,255,0.2); }
+                .login-shell { display: flex; gap: clamp(20px, 3vw, 36px); align-items: stretch;
+                    max-width: 1120px; margin: 0 auto; min-height: calc(100vh - 56px); }
+                .login-input::placeholder { color: ${T.textMuted}; }
+                .login-input::-webkit-input-placeholder { color: ${T.textMuted}; }
+                @media (max-width: 900px) {
+                    .login-shell { flex-direction: column; }
+                    .login-left { min-height: 280px; }
+                    .login-right { width: 100% !important; max-width: 100% !important; }
+                }
             `}</style>
 
+            <div className="login-shell">
             {/* ── LEFT — network visualization ── */}
-            <div style={{
+            <div className="login-left" style={{
                 flex: 1, position: 'relative',
                 overflow: 'hidden',
                 display: 'flex', flexDirection: 'column',
                 justifyContent: 'space-between',
-                padding: '2.5rem',
+                padding: '2.25rem 2.5rem',
                 opacity: entered ? 1 : 0,
                 transition: 'opacity 0.8s ease 0.1s',
+                borderRadius: T.radiusXl,
+                border: `1px solid ${T.border}`,
+                background: `linear-gradient(145deg, ${T.cardBg} 0%, ${T.accentSoft} 55%, ${T.inputBg} 100%)`,
+                boxShadow: T.shadowLg,
             }}>
                 <NetworkCanvas />
 
-                {/* scanline effect */}
+                {/* subtle mesh */}
                 <div style={{
                     position: 'absolute', inset: 0,
-                    background: 'linear-gradient(transparent 50%, rgba(0,0,0,0.03) 50%)',
-                    backgroundSize: '100% 4px',
+                    background: 'radial-gradient(ellipse 80% 60% at 20% 10%, rgba(79,70,229,0.08), transparent 55%)',
                     pointerEvents: 'none', zIndex: 1,
                 }} />
 
-                {/* vignette */}
-                <div style={{
-                    position: 'absolute', inset: 0,
-                    background: 'radial-gradient(ellipse at center, transparent 40%, rgba(6,8,16,0.7) 100%)',
-                    pointerEvents: 'none', zIndex: 1,
-                }} />
-
-                {/* right edge fade into form */}
+                {/* right edge fade into form panel */}
                 <div style={{
                     position: 'absolute', top: 0, right: 0,
-                    width: 120, height: '100%',
-                    background: 'linear-gradient(to right, transparent, #060810)',
+                    width: 100, height: '100%',
+                    background: `linear-gradient(to right, transparent, ${T.pageBg})`,
                     pointerEvents: 'none', zIndex: 2,
+                    opacity: 0.85,
                 }} />
 
                 {/* logo top left */}
@@ -316,18 +401,21 @@ export default function Login() {
                         animation: entered ? 'slideRight 0.6s ease 0.2s both' : 'none',
                     }}>
                         <div style={{
-                            width: 36, height: 36,
-                            background: '#4F46E5',
-                            borderRadius: 8,
+                            width: 40, height: 40,
+                            background: `linear-gradient(135deg, ${T.accent} 0%, ${T.accentMuted} 100%)`,
+                            borderRadius: T.radiusSm,
                             display: 'flex', alignItems: 'center',
                             justifyContent: 'center', fontSize: 18,
+                            boxShadow: T.shadowMd,
+                            color: T.textInverse,
                         }}>
                             ⬡
                         </div>
                         <span style={{
-                            fontFamily: 'Bebas Neue, sans-serif',
-                            fontSize: 22, color: '#fff',
-                            letterSpacing: '0.12em',
+                            fontFamily: T.fontHead,
+                            fontSize: 22, fontWeight: 800,
+                            color: T.textPri,
+                            letterSpacing: '0.06em',
                         }}>
                             FLEETIQ
                         </span>
@@ -340,21 +428,26 @@ export default function Login() {
                     animation: entered ? 'slideRight 0.7s ease 0.35s both' : 'none',
                 }}>
                     <div style={{
-                        fontFamily: 'Bebas Neue, sans-serif',
-                        fontSize: 'clamp(52px, 6vw, 80px)',
-                        lineHeight: 0.92,
-                        color: '#fff',
-                        marginBottom: '1.5rem',
-                        letterSpacing: '0.04em',
+                        fontFamily: T.fontHead,
+                        fontSize: 'clamp(40px, 5vw, 64px)',
+                        fontWeight: 800,
+                        lineHeight: 0.95,
+                        color: T.textPri,
+                        marginBottom: '1.25rem',
+                        letterSpacing: '-0.02em',
                     }}>
-                        SMART<br />
-                        <span style={{ color: '#4F46E5' }}>LOGISTICS</span><br />
-                        INTELLIGENCE
+                        Smart<br />
+                        <span style={{
+                            background: `linear-gradient(120deg, ${T.accent} 0%, ${T.accentMuted} 100%)`,
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            backgroundClip: 'text',
+                        }}>logistics</span><br />
+                        intelligence
                     </div>
                     <p style={{
-                        fontSize: 13, color: 'rgba(255,255,255,0.4)',
-                        maxWidth: 340, lineHeight: 1.7, margin: 0,
-                        letterSpacing: '0.02em',
+                        fontSize: 14, color: T.textSec,
+                        maxWidth: 360, lineHeight: 1.65, margin: 0,
                     }}>
                         Real-time fleet tracking, shipment management,
                         and geo-spatial analytics for modern logistics operations.
@@ -367,9 +460,10 @@ export default function Login() {
                         animation: entered ? 'slideRight 0.6s ease 0.5s both' : 'none',
                     }}>
                         <div style={{
-                            fontSize: 10, color: 'rgba(255,255,255,0.25)',
+                            fontSize: 10, color: T.textMuted,
                             letterSpacing: '0.12em',
                             textTransform: 'uppercase', marginBottom: 10,
+                            fontWeight: 600,
                         }}>
                             Live network
                         </div>
@@ -378,54 +472,119 @@ export default function Login() {
                 </div>
             </div>
 
-            {/* ── RIGHT — login form ── */}
-            <div style={{
-                width: 480, flexShrink: 0,
-                background: '#0c0f1d',
-                borderLeft: '1px solid rgba(255,255,255,0.06)',
+            {/* ── RIGHT — login / sign-up ── */}
+            <div className="login-right" style={{
+                width: 'min(440px, 100%)',
+                flexShrink: 0,
+                maxHeight: 'calc(100vh - 56px)',
+                overflowY: 'auto',
+                background: T.cardBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: T.radiusXl,
+                boxShadow: T.shadowXl,
                 display: 'flex', flexDirection: 'column',
-                justifyContent: 'center', padding: '3rem 3.5rem',
+                justifyContent: 'center', padding: '2rem 2.25rem',
                 position: 'relative',
                 opacity: entered ? 1 : 0,
-                transform: entered ? 'translateX(0)' : 'translateX(20px)',
+                transform: entered ? 'translateX(0)' : 'translateX(12px)',
                 transition: 'opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s',
             }}>
                 {/* top accent line */}
                 <div style={{
-                    position: 'absolute', top: 0, left: 0, right: 0,
-                    height: 2,
-                    background: 'linear-gradient(to right, transparent, #4F46E5, transparent)',
+                    position: 'absolute', top: 0, left: 24, right: 24,
+                    height: 3,
+                    borderRadius: '0 0 6px 6px',
+                    background: `linear-gradient(90deg, transparent 0%, ${T.accent} 35%, ${T.accentMuted} 65%, transparent 100%)`,
+                    opacity: 0.9,
                 }} />
+
+                {/* Sign in / Create org toggle */}
+                <div style={{
+                    display: 'flex',
+                    gap: 6,
+                    padding: 5,
+                    marginBottom: '1.75rem',
+                    background: T.inputBg,
+                    borderRadius: T.radius,
+                    border: `1px solid ${T.border}`,
+                    animation: entered ? 'fadeUp 0.6s ease 0.35s both' : 'none',
+                }}>
+                    <button
+                        type="button"
+                        onClick={() => { switchToSignin(); }}
+                        style={{
+                            flex: 1,
+                            padding: '10px 12px',
+                            borderRadius: T.radiusSm,
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: T.fontBody,
+                            background: mode === 'signin' ? T.accent : 'transparent',
+                            color: mode === 'signin' ? T.textInverse : T.textSec,
+                            boxShadow: mode === 'signin' ? T.shadowMd : 'none',
+                            transition: 'background 0.2s, color 0.2s, box-shadow 0.2s',
+                        }}
+                    >
+                        Sign in
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { switchToSignup(); }}
+                        style={{
+                            flex: 1,
+                            padding: '10px 12px',
+                            borderRadius: T.radiusSm,
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: T.fontBody,
+                            background: mode === 'signup' ? T.accent : 'transparent',
+                            color: mode === 'signup' ? T.textInverse : T.textSec,
+                            boxShadow: mode === 'signup' ? T.shadowMd : 'none',
+                            transition: 'background 0.2s, color 0.2s, box-shadow 0.2s',
+                        }}
+                    >
+                        New organization
+                    </button>
+                </div>
 
                 {/* form header */}
                 <div style={{
-                    marginBottom: '2.5rem',
+                    marginBottom: mode === 'signin' ? '2rem' : '1.5rem',
                     animation: entered ? 'fadeUp 0.6s ease 0.4s both' : 'none',
                 }}>
                     <div style={{
-                        fontSize: 11, color: '#4F46E5',
+                        fontSize: 11, color: T.accent,
                         letterSpacing: '0.15em',
                         textTransform: 'uppercase',
                         fontWeight: 600, marginBottom: 10,
                     }}>
-                        Secure Access Portal
+                        {mode === 'signin' ? 'Secure access' : 'Company onboarding'}
                     </div>
                     <h2 style={{
-                        margin: 0, fontSize: 28, fontWeight: 700,
-                        color: '#fff', fontFamily: 'Bebas Neue, sans-serif',
-                        letterSpacing: '0.06em',
+                        margin: 0, fontSize: 26, fontWeight: 800,
+                        color: T.textPri, fontFamily: T.fontHead,
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.1,
                     }}>
-                        SIGN IN TO FLEETIQ
+                        {mode === 'signin' ? 'Sign in to FleetIQ' : 'Create your workspace'}
                     </h2>
                     <p style={{
                         margin: '8px 0 0', fontSize: 13,
-                        color: 'rgba(255,255,255,0.35)',
+                        color: T.textSec,
+                        lineHeight: 1.5,
                     }}>
-                        Enter your credentials to access the platform
+                        {mode === 'signin'
+                            ? 'Enter your credentials to access your organization.'
+                            : 'Register your company once. You become the admin and can invite managers and drivers from the dashboard.'}
                     </p>
                 </div>
 
-                {/* form */}
+                {/* sign-in form */}
+                {mode === 'signin' && (
                 <form onSubmit={handleSubmit} style={{
                     animation: entered ? 'fadeUp 0.6s ease 0.5s both' : 'none',
                 }}>
@@ -433,8 +592,7 @@ export default function Login() {
                     <div style={{ marginBottom: 18 }}>
                         <label style={{
                             display: 'block', fontSize: 11, fontWeight: 600,
-                            color: focused === 'email'
-                                ? '#4F46E5' : 'rgba(255,255,255,0.4)',
+                            color: focused === 'email' ? T.accent : T.textMuted,
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                             marginBottom: 8,
                             transition: 'color 0.2s',
@@ -454,14 +612,14 @@ export default function Login() {
                                 style={{
                                     width: '100%',
                                     padding: '13px 16px 13px 44px',
-                                    background: 'rgba(255,255,255,0.04)',
+                                    background: T.inputBg,
                                     border: `1px solid ${focused === 'email'
-                                        ? '#4F46E5'
-                                        : 'rgba(255,255,255,0.08)'}`,
+                                        ? T.borderFocus
+                                        : T.border}`,
                                     borderRadius: 10,
-                                    color: '#fff', fontSize: 14,
+                                    color: T.textPri, fontSize: 14,
                                     outline: 'none', boxSizing: 'border-box',
-                                    fontFamily: 'DM Sans, sans-serif',
+                                    fontFamily: T.fontBody,
                                     transition: 'border-color 0.2s, background 0.2s',
                                 }}
                             />
@@ -481,8 +639,7 @@ export default function Login() {
                     <div style={{ marginBottom: 28 }}>
                         <label style={{
                             display: 'block', fontSize: 11, fontWeight: 600,
-                            color: focused === 'password'
-                                ? '#4F46E5' : 'rgba(255,255,255,0.4)',
+                            color: focused === 'password' ? T.accent : T.textMuted,
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                             marginBottom: 8,
                             transition: 'color 0.2s',
@@ -502,14 +659,14 @@ export default function Login() {
                                 style={{
                                     width: '100%',
                                     padding: '13px 16px 13px 44px',
-                                    background: 'rgba(255,255,255,0.04)',
+                                    background: T.inputBg,
                                     border: `1px solid ${focused === 'password'
-                                        ? '#4F46E5'
-                                        : 'rgba(255,255,255,0.08)'}`,
+                                        ? T.borderFocus
+                                        : T.border}`,
                                     borderRadius: 10,
-                                    color: '#fff', fontSize: 14,
+                                    color: T.textPri, fontSize: 14,
                                     outline: 'none', boxSizing: 'border-box',
-                                    fontFamily: 'DM Sans, sans-serif',
+                                    fontFamily: T.fontBody,
                                     transition: 'border-color 0.2s, background 0.2s',
                                 }}
                             />
@@ -529,10 +686,10 @@ export default function Login() {
                     {error && (
                         <div style={{
                             marginBottom: 16, padding: '10px 14px',
-                            background: 'rgba(220,38,38,0.1)',
-                            border: '1px solid rgba(220,38,38,0.3)',
-                            borderRadius: 8, fontSize: 13,
-                            color: '#f87171',
+                            background: T.dangerLight,
+                            border: `1px solid rgba(220, 38, 38, 0.25)`,
+                            borderRadius: T.radiusSm, fontSize: 13,
+                            color: T.danger,
                             animation: 'fadeUp 0.2s ease',
                         }}>
                             ⚠ {error}
@@ -544,26 +701,27 @@ export default function Login() {
                         width: '100%',
                         padding: '14px',
                         background: loading
-                            ? 'rgba(79,70,229,0.5)'
-                            : '#4F46E5',
+                            ? T.accentLight
+                            : T.accent,
                         border: 'none',
-                        borderRadius: 10,
-                        color: '#fff', fontSize: 14,
+                        borderRadius: T.radiusSm,
+                        color: T.textInverse, fontSize: 14,
                         fontWeight: 700,
                         cursor: loading ? 'not-allowed' : 'pointer',
-                        fontFamily: 'DM Sans, sans-serif',
-                        letterSpacing: '0.06em',
+                        fontFamily: T.fontBody,
+                        letterSpacing: '0.04em',
+                        boxShadow: loading ? 'none' : T.shadowMd,
                         position: 'relative',
                         overflow: 'hidden',
-                        transition: 'background 0.2s, transform 0.1s',
+                        transition: 'background 0.2s, transform 0.1s, box-shadow 0.2s',
                     }}
                     onMouseEnter={e => {
                         if (!loading)
-                            e.currentTarget.style.background = '#4338CA';
+                            e.currentTarget.style.background = T.accentHover;
                     }}
                     onMouseLeave={e => {
                         if (!loading)
-                            e.currentTarget.style.background = '#4F46E5';
+                            e.currentTarget.style.background = T.accent;
                     }}
                     onMouseDown={e => {
                         if (!loading)
@@ -577,7 +735,7 @@ export default function Login() {
                                            justifyContent: 'center', gap: 10 }}>
                                 <span style={{
                                     width: 16, height: 16,
-                                    border: '2px solid rgba(255,255,255,0.3)',
+                                    border: '2px solid rgba(255,255,255,0.35)',
                                     borderTop: '2px solid #fff',
                                     borderRadius: '50%',
                                     display: 'inline-block',
@@ -590,27 +748,175 @@ export default function Login() {
                         )}
                     </button>
                 </form>
+                )}
+
+                {/* sign-up: new organization + admin */}
+                {mode === 'signup' && (
+                <form onSubmit={handleSignup} style={{
+                    animation: entered ? 'fadeUp 0.6s ease 0.5s both' : 'none',
+                }}>
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={signupLabelSx(focused === 'org')}>Organization name</label>
+                        <input
+                            className="login-input"
+                            value={orgName}
+                            onChange={e => setOrgName(e.target.value)}
+                            onFocus={() => setFocused('org')}
+                            onBlur={() => setFocused(null)}
+                            placeholder="e.g. Acme Logistics Ltd"
+                            required
+                            minLength={2}
+                            style={signupInputSx(focused === 'org')}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
+                        <div>
+                            <label style={signupLabelSx(focused === 'ind')}>Industry (optional)</label>
+                            <input
+                                className="login-input"
+                                value={industry}
+                                onChange={e => setIndustry(e.target.value)}
+                                onFocus={() => setFocused('ind')}
+                                onBlur={() => setFocused(null)}
+                                placeholder="Freight, retail…"
+                                style={signupInputSx(focused === 'ind')}
+                            />
+                        </div>
+                        <div>
+                            <label style={signupLabelSx(focused === 'ph')}>Phone (optional)</label>
+                            <input
+                                className="login-input"
+                                value={phone}
+                                onChange={e => setPhone(e.target.value)}
+                                onFocus={() => setFocused('ph')}
+                                onBlur={() => setFocused(null)}
+                                placeholder="+1 …"
+                                style={signupInputSx(focused === 'ph')}
+                            />
+                        </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={signupLabelSx(focused === 'adm')}>Your full name</label>
+                        <input
+                            className="login-input"
+                            value={adminName}
+                            onChange={e => setAdminName(e.target.value)}
+                            onFocus={() => setFocused('adm')}
+                            onBlur={() => setFocused(null)}
+                            placeholder="Jane Doe"
+                            required
+                            style={signupInputSx(focused === 'adm')}
+                        />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={signupLabelSx(focused === 'sem')}>Work email</label>
+                        <input
+                            className="login-input"
+                            type="email"
+                            value={signupEmail}
+                            onChange={e => setSignupEmail(e.target.value)}
+                            onFocus={() => setFocused('sem')}
+                            onBlur={() => setFocused(null)}
+                            placeholder="you@company.com"
+                            required
+                            style={signupInputSx(focused === 'sem')}
+                        />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={signupLabelSx(focused === 'spw')}>Password (min. 8 characters)</label>
+                        <input
+                            className="login-input"
+                            type="password"
+                            value={signupPassword}
+                            onChange={e => setSignupPassword(e.target.value)}
+                            onFocus={() => setFocused('spw')}
+                            onBlur={() => setFocused(null)}
+                            placeholder="••••••••"
+                            required
+                            minLength={8}
+                            style={signupInputSx(focused === 'spw')}
+                        />
+                    </div>
+                    <div style={{ marginBottom: 16 }}>
+                        <label style={signupLabelSx(focused === 'cpw')}>Confirm password</label>
+                        <input
+                            className="login-input"
+                            type="password"
+                            value={confirmPassword}
+                            onChange={e => setConfirmPassword(e.target.value)}
+                            onFocus={() => setFocused('cpw')}
+                            onBlur={() => setFocused(null)}
+                            placeholder="••••••••"
+                            required
+                            style={signupInputSx(focused === 'cpw')}
+                        />
+                    </div>
+                    {error && (
+                        <div style={{
+                            marginBottom: 16, padding: '10px 14px',
+                            background: T.dangerLight,
+                            border: '1px solid rgba(220, 38, 38, 0.25)',
+                            borderRadius: T.radiusSm, fontSize: 13,
+                            color: T.danger,
+                        }}>
+                            ⚠ {error}
+                        </div>
+                    )}
+                    <label style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10,
+                        marginBottom: 18, cursor: 'pointer',
+                        fontSize: 12, color: T.textSec,
+                        lineHeight: 1.45,
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={authorized}
+                            onChange={e => setAuthorized(e.target.checked)}
+                            style={{ marginTop: 3, width: 16, height: 16, accentColor: T.accent }}
+                        />
+                        <span>I confirm I am authorized to create this organization account and accept FleetIQ storing this data to provide the service.</span>
+                    </label>
+                    <button type="submit" disabled={loading || !authorized} style={{
+                        width: '100%',
+                        padding: '14px',
+                        background: loading || !authorized
+                            ? T.accentLight
+                            : T.accent,
+                        border: 'none',
+                        borderRadius: T.radiusSm,
+                        color: T.textInverse, fontSize: 14,
+                        fontWeight: 700,
+                        cursor: loading || !authorized ? 'not-allowed' : 'pointer',
+                        fontFamily: T.fontBody,
+                        letterSpacing: '0.04em',
+                        boxShadow: loading || !authorized ? 'none' : T.shadowMd,
+                    }}>
+                        {loading ? 'Creating workspace…' : 'CREATE ORGANIZATION & SIGN IN →'}
+                    </button>
+                </form>
+                )}
 
                 {/* test accounts */}
+                {mode === 'signin' && (
                 <div style={{
                     marginTop: '2rem',
                     padding: '1.25rem',
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    borderRadius: 10,
+                    background: T.inputBg,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: T.radiusSm,
                     animation: entered ? 'fadeUp 0.6s ease 0.6s both' : 'none',
                 }}>
                     <div style={{
-                        fontSize: 10, color: 'rgba(255,255,255,0.25)',
+                        fontSize: 10, color: T.textMuted,
                         letterSpacing: '0.1em', textTransform: 'uppercase',
                         fontWeight: 600, marginBottom: 12,
                     }}>
                         Demo credentials
                     </div>
                     {[
-                        { role: 'Admin',   email: 'ahmed@swiftmove.com',  color: '#a78bfa' },
-                        { role: 'Manager', email: 'sara@swiftmove.com',   color: '#60a5fa' },
-                        { role: 'Driver',  email: 'usman@swiftmove.com',  color: '#34d399' },
+                        { role: 'Admin',   email: 'ahmed@swiftmove.com',  color: T.accent },
+                        { role: 'Manager', email: 'sara@swiftmove.com',   color: T.info },
+                        { role: 'Driver',  email: 'usman@swiftmove.com',  color: T.success },
                     ].map(a => (
                         <button key={a.role}
                             onClick={() => { setEmail(a.email); setPassword('password123'); }}
@@ -624,43 +930,45 @@ export default function Login() {
                                 transition: 'background 0.15s',
                                 textAlign: 'left',
                             }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            onMouseEnter={e => { e.currentTarget.style.background = T.accentSoft; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <span style={{
                                 width: 52, fontSize: 10, fontWeight: 700,
                                 color: a.color, letterSpacing: '0.08em',
                                 textTransform: 'uppercase',
-                                fontFamily: 'DM Sans, sans-serif',
+                                fontFamily: T.fontBody,
                             }}>
                                 {a.role}
                             </span>
                             <span style={{
-                                fontSize: 12, color: 'rgba(255,255,255,0.45)',
-                                fontFamily: 'DM Sans, sans-serif',
+                                fontSize: 12, color: T.textSec,
+                                fontFamily: T.fontBody,
                             }}>
                                 {a.email}
                             </span>
                             <span style={{
                                 marginLeft: 'auto', fontSize: 10,
-                                color: 'rgba(255,255,255,0.2)',
-                                fontFamily: 'DM Sans, sans-serif',
+                                color: T.textMuted,
+                                fontFamily: T.fontBody,
                             }}>
                                 click to fill →
                             </span>
                         </button>
                     ))}
                 </div>
+                )}
 
                 {/* bottom corner label */}
                 <div style={{
                     position: 'absolute', bottom: '1.5rem', right: '1.5rem',
-                    fontSize: 10, color: 'rgba(255,255,255,0.12)',
+                    fontSize: 10, color: T.textMuted,
                     letterSpacing: '0.08em',
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontFamily: T.fontBody,
                 }}>
                     FLEETIQ v1.0 · ADBMS PROJECT
                 </div>
+            </div>
             </div>
         </div>
     );

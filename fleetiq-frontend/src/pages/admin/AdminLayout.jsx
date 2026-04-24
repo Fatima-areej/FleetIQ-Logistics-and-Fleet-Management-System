@@ -66,7 +66,10 @@ export default function AdminLayout({ children }) {
                 API.get('/shipments/delayed'),
             ]);
             setUnread(notifRes.data.unread || 0);
-            setUnreadMemo(memoRes.data.filter(m => !m.is_read).length);
+            setUnreadMemo(memoRes.data.filter(m =>
+                m.thread_unread === true || m.thread_unread === 1
+                || (m.thread_unread == null && !m.is_read)
+            ).length);
             setDelayed(delayRes.data.length || 0);
         } catch (err) {
             console.error(err);
@@ -113,8 +116,9 @@ export default function AdminLayout({ children }) {
             <aside style={{
                 width:          sideW,
                 flexShrink:     0,
-                background:     T.cardBg,
+                background:     T.sidebarBg,
                 borderRight:    `1px solid ${T.border}`,
+                boxShadow:      T.shadowSidebar,
                 display:        'flex',
                 flexDirection:  'column',
                 position:       'sticky',
@@ -343,7 +347,7 @@ export default function AdminLayout({ children }) {
                 {/* topbar */}
                 <header style={{
                     height:         T.topH,
-                    background:     T.cardBg,
+                    background:     T.topBarBg,
                     borderBottom:   `1px solid ${T.border}`,
                     display:        'flex',
                     alignItems:     'center',
@@ -484,7 +488,7 @@ export default function AdminLayout({ children }) {
                 <div style={{
                     position:       'fixed',
                     inset:          0,
-                    background:     'rgba(15,23,41,0.5)',
+                    background:     T.overlay,
                     backdropFilter: 'blur(4px)',
                     display:        'flex',
                     alignItems:     'flex-start',

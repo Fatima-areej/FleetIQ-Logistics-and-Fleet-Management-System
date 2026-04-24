@@ -3,9 +3,8 @@ import React from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { T } from '../../styles/theme';
 import API from '../../api/axios';
-import { SkeletonCard } from '../../components/ui/Skeleton';
+import { T } from '../../styles/theme';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -20,8 +19,8 @@ const makeIcon = (emoji, color) => new L.DivIcon({
         width:34px;height:34px;border-radius:10px;
         display:flex;align-items:center;justify-content:center;
         font-size:16px;
-        box-shadow:0 0 0 2px rgba(255,255,255,0.15), 0 4px 12px rgba(0,0,0,0.5);
-        border:1.5px solid rgba(255,255,255,0.2);
+        box-shadow:0 0 0 2px #fff,0 4px 14px rgba(15,23,42,0.18);
+        border:1.5px solid rgba(15,23,42,0.12);
         backdrop-filter:blur(4px);
     ">${emoji}</div>`,
     className: '', iconSize: [34, 34], iconAnchor: [17, 17],
@@ -39,7 +38,6 @@ export default function AdminMap() {
     const [showWh,   setShowWh]   = useState(true);
     const [showVeh,  setShowVeh]  = useState(true);
     const [showShip, setShowShip] = useState(true);
-    const [selected, setSelected] = useState(null);
 
     const fetchData = () => {
         setLoading(true);
@@ -70,54 +68,58 @@ export default function AdminMap() {
         }}>
             <style>{`
                 .leaflet-container {
-                    background: #060810 !important;
-                    font-family: 'DM Sans', sans-serif !important;
+                    background: ${T.inputBg} !important;
+                    font-family: ${T.fontBody} !important;
                 }
                 .leaflet-popup-content-wrapper {
-                    background: #0c0f1d !important;
-                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    background: ${T.cardBg} !important;
+                    border: 1px solid ${T.border} !important;
                     border-radius: 12px !important;
-                    box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
-                    color: #F1F5F9 !important;
+                    box-shadow: ${T.shadowLg} !important;
+                    color: ${T.textPri} !important;
                     padding: 0 !important;
                 }
                 .leaflet-popup-content {
                     margin: 0 !important;
-                    font-family: 'DM Sans', sans-serif !important;
+                    font-family: ${T.fontBody} !important;
                 }
                 .leaflet-popup-tip {
-                    background: #0c0f1d !important;
+                    background: ${T.cardBg} !important;
+                    box-shadow: none !important;
                 }
                 .leaflet-popup-close-button {
-                    color: #94A3B8 !important;
+                    color: ${T.textMuted} !important;
                     font-size: 18px !important;
                     top: 8px !important;
                     right: 8px !important;
                 }
+                .leaflet-popup-close-button:hover { color: ${T.textPri} !important; }
                 .leaflet-control-zoom {
-                    border: 1px solid rgba(255,255,255,0.1) !important;
+                    border: 1px solid ${T.border} !important;
                     border-radius: 10px !important;
                     overflow: hidden;
+                    box-shadow: ${T.shadowMd};
                 }
                 .leaflet-control-zoom a {
-                    background: #0c0f1d !important;
-                    color: #94A3B8 !important;
-                    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+                    background: ${T.cardBg} !important;
+                    color: ${T.textSec} !important;
+                    border-bottom: 1px solid ${T.border} !important;
                     width: 32px !important; height: 32px !important;
                     line-height: 32px !important;
                 }
                 .leaflet-control-zoom a:hover {
-                    background: #4F46E5 !important;
-                    color: #fff !important;
+                    background: ${T.accentLight} !important;
+                    color: ${T.accent} !important;
                 }
                 .leaflet-attribution-flag { display: none !important; }
                 .leaflet-control-attribution {
-                    background: rgba(6,8,16,0.7) !important;
-                    color: rgba(255,255,255,0.2) !important;
+                    background: rgba(255,255,255,0.88) !important;
+                    color: ${T.textMuted} !important;
                     font-size: 9px !important;
                     border-radius: 6px !important;
+                    border: 1px solid ${T.border} !important;
                 }
-                .leaflet-control-attribution a { color: rgba(255,255,255,0.3) !important; }
+                .leaflet-control-attribution a { color: ${T.textSec} !important; }
             `}</style>
 
             {/* ── CONTROL BAR ── */}
@@ -141,27 +143,27 @@ export default function AdminMap() {
                             padding: '7px 14px',
                             background: item.val
                                 ? `rgba(${hexToRgb(item.color)},0.12)`
-                                : 'rgba(255,255,255,0.03)',
+                                : T.inputBg,
                             border: `1px solid ${item.val
                                 ? item.color + '40'
-                                : 'rgba(255,255,255,0.08)'}`,
+                                : T.border}`,
                             borderRadius: 8, cursor: 'pointer',
                             fontSize: 12, fontWeight: item.val ? 600 : 400,
-                            color: item.val ? item.color : 'rgba(255,255,255,0.4)',
+                            color: item.val ? item.color : T.textMuted,
                             transition: 'all 0.15s',
-                            fontFamily: 'DM Sans, sans-serif',
+                            fontFamily: T.fontBody,
                         }}>
                         <span style={{
                             width: 7, height: 7, borderRadius: '50%',
-                            background: item.val ? item.color : 'rgba(255,255,255,0.2)',
+                            background: item.val ? item.color : T.borderStrong,
                             boxShadow: item.val ? `0 0 6px ${item.color}` : 'none',
                             transition: 'all 0.15s',
                         }} />
                         {item.label}
                         <span style={{
                             background: item.val
-                                ? `rgba(${hexToRgb(item.color)},0.2)` : 'rgba(255,255,255,0.05)',
-                            color: item.val ? item.color : 'rgba(255,255,255,0.25)',
+                                ? `rgba(${hexToRgb(item.color)},0.2)` : T.inputBg,
+                            color: item.val ? item.color : T.textMuted,
                             fontSize: 10, fontWeight: 700,
                             padding: '1px 6px',
                             borderRadius: 99,
@@ -175,11 +177,11 @@ export default function AdminMap() {
                 <div style={{
                     display: 'flex', gap: 10, alignItems: 'center',
                     padding: '7px 14px',
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: T.inputBg,
+                    border: `1px solid ${T.border}`,
                     borderRadius: 8, fontSize: 11,
-                    color: 'rgba(255,255,255,0.4)',
-                    fontFamily: 'DM Sans, sans-serif',
+                    color: T.textMuted,
+                    fontFamily: T.fontBody,
                 }}>
                     {[
                         { label: 'Available',    color: '#059669' },
@@ -202,22 +204,22 @@ export default function AdminMap() {
                 <button onClick={fetchData} style={{
                     marginLeft: 'auto',
                     padding: '7px 14px',
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: T.inputBg,
+                    border: `1px solid ${T.border}`,
                     borderRadius: 8, cursor: 'pointer',
-                    fontSize: 12, color: 'rgba(255,255,255,0.4)',
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 12, color: T.textSec,
+                    fontFamily: T.fontBody,
                     transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(79,70,229,0.12)';
-                    e.currentTarget.style.color = '#4F46E5';
-                    e.currentTarget.style.borderColor = '#4F46E550';
+                    e.currentTarget.style.background = T.accentLight;
+                    e.currentTarget.style.color = T.accent;
+                    e.currentTarget.style.borderColor = T.borderFocus;
                 }}
                 onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-                    e.currentTarget.style.color = 'rgba(255,255,255,0.4)';
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                    e.currentTarget.style.background = T.inputBg;
+                    e.currentTarget.style.color = T.textSec;
+                    e.currentTarget.style.borderColor = T.border;
                 }}>
                     ↻ Refresh
                 </button>
@@ -226,26 +228,26 @@ export default function AdminMap() {
             {/* ── MAP ── */}
             <div style={{
                 flex: 1, borderRadius: 16, overflow: 'hidden',
-                border: '1px solid rgba(255,255,255,0.08)',
-                boxShadow: '0 0 0 1px rgba(79,70,229,0.1), 0 20px 60px rgba(0,0,0,0.5)',
+                border: `1px solid ${T.border}`,
+                boxShadow: `${T.shadowLg}, 0 0 0 1px ${T.accentLight}`,
                 position: 'relative',
             }}>
                 {loading ? (
                     <div style={{
-                        height: '100%', background: '#060810',
+                        height: '100%', background: T.inputBg,
                         display: 'flex', alignItems: 'center',
                         justifyContent: 'center', flexDirection: 'column', gap: 12,
                     }}>
                         <div style={{
                             width: 32, height: 32,
-                            border: '2px solid rgba(255,255,255,0.1)',
-                            borderTop: '2px solid #4F46E5',
+                            border: `2px solid ${T.border}`,
+                            borderTop: `2px solid ${T.accent}`,
                             borderRadius: '50%',
                             animation: 'spin 0.8s linear infinite',
                         }} />
-                        <p style={{ color: 'rgba(255,255,255,0.3)',
+                        <p style={{ color: T.textMuted,
                                     fontSize: 13, margin: 0,
-                                    fontFamily: 'DM Sans, sans-serif' }}>
+                                    fontFamily: T.fontBody }}>
                             Loading map data...
                         </p>
                         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -258,7 +260,7 @@ export default function AdminMap() {
                         zoomControl={true}
                     >
                         <TileLayer
-                            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
                             attribution='&copy; <a href="https://carto.com/">CARTO</a>'
                             maxZoom={19}
                         />
@@ -269,11 +271,6 @@ export default function AdminMap() {
                                     <Marker
                                         position={[w.latitude, w.longitude]}
                                         icon={warehouseIcon}
-                                        eventHandlers={{
-                                            click: () => setSelected({
-                                                type: 'warehouse', data: w
-                                            }),
-                                        }}
                                     >
                                         <Popup>
                                             <PopupCard
@@ -370,9 +367,10 @@ export default function AdminMap() {
                         ].map(s => (
                             <div key={s.label} style={{
                                 padding: '6px 12px',
-                                background: 'rgba(6,8,16,0.85)',
+                                background: 'rgba(255,255,255,0.92)',
                                 backdropFilter: 'blur(8px)',
-                                border: `1px solid ${s.color}30`,
+                                border: `1px solid ${T.border}`,
+                                boxShadow: T.shadowMd,
                                 borderRadius: 8,
                                 display: 'flex', alignItems: 'center', gap: 7,
                             }}>
@@ -383,15 +381,15 @@ export default function AdminMap() {
                                 }} />
                                 <span style={{
                                     fontSize: 11, fontWeight: 700,
-                                    color: '#fff',
-                                    fontFamily: 'DM Sans, sans-serif',
+                                    color: T.textPri,
+                                    fontFamily: T.fontBody,
                                 }}>
                                     {s.value}
                                 </span>
                                 <span style={{
                                     fontSize: 10,
-                                    color: 'rgba(255,255,255,0.35)',
-                                    fontFamily: 'DM Sans, sans-serif',
+                                    color: T.textMuted,
+                                    fontFamily: T.fontBody,
                                 }}>
                                     {s.label}
                                 </span>
@@ -409,7 +407,7 @@ function PopupCard({ icon, title, subtitle, color, rows }) {
     return (
         <div style={{
             padding: '14px 16px', minWidth: 180,
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: T.fontBody,
         }}>
             <div style={{ display: 'flex', alignItems: 'center',
                           gap: 8, marginBottom: 8 }}>
@@ -424,11 +422,11 @@ function PopupCard({ icon, title, subtitle, color, rows }) {
                 </div>
                 <div>
                     <div style={{ fontWeight: 700, fontSize: 13,
-                                  color: '#F1F5F9', lineHeight: 1.2 }}>
+                                  color: T.textPri, lineHeight: 1.2 }}>
                         {title}
                     </div>
                     {subtitle && (
-                        <div style={{ fontSize: 11, color: '#94A3B8',
+                        <div style={{ fontSize: 11, color: T.textSec,
                                       marginTop: 1,
                                       maxWidth: 160, overflow: 'hidden',
                                       textOverflow: 'ellipsis',
@@ -440,7 +438,7 @@ function PopupCard({ icon, title, subtitle, color, rows }) {
             </div>
             {rows?.length > 0 && (
                 <div style={{
-                    borderTop: '1px solid rgba(255,255,255,0.07)',
+                    borderTop: `1px solid ${T.border}`,
                     paddingTop: 8, display: 'flex', flexDirection: 'column',
                     gap: 4,
                 }}>
@@ -450,11 +448,11 @@ function PopupCard({ icon, title, subtitle, color, rows }) {
                             alignItems: 'center',
                         }}>
                             <span style={{ fontSize: 11,
-                                           color: 'rgba(255,255,255,0.35)' }}>
+                                           color: T.textMuted }}>
                                 {label}
                             </span>
                             <span style={{ fontSize: 11, fontWeight: 600,
-                                           color: '#F1F5F9',
+                                           color: T.textPri,
                                            textTransform: 'capitalize' }}>
                                 {val}
                             </span>

@@ -20,7 +20,7 @@ export default function Btn({
             border:     'none',
         },
         secondary: {
-            background: hovered ? T.accentLight : T.cardBg,
+            background: hovered ? T.accentLight : T.inputBg,
             color:      color || T.accent,
             border:     `1px solid ${T.border}`,
         },
@@ -61,7 +61,7 @@ export default function Btn({
                 transform:     hovered && !disabled ? 'translateY(-1px)' : 'none',
                 fontFamily:    T.fontBody,
                 whiteSpace:    'nowrap',
-                boxShadow:     variant === 'primary' && !disabled ? T.shadow : 'none',
+                boxShadow:     variant === 'primary' && !disabled ? T.shadowMd : 'none',
             }}
         >
             {icon && <span style={{ fontSize: 14 }}>{icon}</span>}

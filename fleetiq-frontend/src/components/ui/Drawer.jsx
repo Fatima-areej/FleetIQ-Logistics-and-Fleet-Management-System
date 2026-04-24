@@ -24,7 +24,7 @@ export default function Drawer({ title, onClose, children, width = 520 }) {
             {/* backdrop */}
             <div style={{
                 flex:       1,
-                background: 'rgba(15,23,41,0.3)',
+                background: T.overlay,
                 backdropFilter: 'blur(2px)',
                 animation:  'fadeIn 0.2s ease',
             }} onClick={onClose} />

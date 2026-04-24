@@ -62,7 +62,7 @@ export default function AdminDrivers() {
     const [loading,     setLoading]     = useState(true);
     const [msg,         setMsg]         = useState(null);
     const [search,      setSearch]      = useState('');
-    const [sortBy,      setSortBy]      = useState('rating');
+    const [sortBy,      setSortBy]      = useState('deliveries');
     const [filterStatus,setFilterStatus]= useState('all');
 
     // drawer
@@ -109,19 +109,6 @@ export default function AdminDrivers() {
         }
     };
 
-    const recalcRating = async (driver_id) => {
-        try {
-            const res = await API.post(`/drivers/${driver_id}/recalculate-rating`);
-            showMsg(`Rating updated to ${res.data.new_rating}`);
-            fetchDrivers();
-            if (drawer?.driver_id === driver_id) {
-                openDrawer(drawer);
-            }
-        } catch (err) {
-            showMsg('Failed to recalculate.', false);
-        }
-    };
-
     const openEdit = (driver) => {
         setEditModal(driver.driver_id);
         setEditForm({
@@ -153,7 +140,6 @@ export default function AdminDrivers() {
             return true;
         })
         .sort((a, b) => {
-            if (sortBy === 'rating')      return b.rating - a.rating;
             if (sortBy === 'deliveries')  return (b.completed_deliveries || 0) - (a.completed_deliveries || 0);
             if (sortBy === 'on_time')     return (b.on_time_deliveries || 0) - (a.on_time_deliveries || 0);
             return 0;
@@ -163,9 +149,6 @@ export default function AdminDrivers() {
         total:       drivers.length,
         available:   drivers.filter(d => d.availability_status === 'available').length,
         onDelivery:  drivers.filter(d => d.availability_status === 'on_delivery').length,
-        avgRating:   drivers.length > 0
-            ? (drivers.reduce((s, d) => s + parseFloat(d.rating || 0), 0) / drivers.length).toFixed(2)
-            : 0,
     };
 
     return (
@@ -182,7 +165,7 @@ export default function AdminDrivers() {
                     { label: 'Total Drivers',  value: stats.total,      color: T.textPri },
                     { label: 'Available',      value: stats.available,  color: T.success },
                     { label: 'On Delivery',    value: stats.onDelivery, color: T.accent  },
-                    { label: 'Avg Rating',     value: `★ ${stats.avgRating}`, color: T.warning },
+                    { label: 'Performance view', value: 'Active', color: T.accent },
                 ].map(s => (
                     <Card key={s.label} style={{ padding: '1rem 1.25rem' }}>
                         <div style={{ fontSize: 11, color: T.textMuted,
@@ -260,7 +243,6 @@ export default function AdminDrivers() {
                             color: T.textSec, outline: 'none',
                             cursor: 'pointer', fontFamily: T.fontBody,
                         }}>
-                        <option value="rating">Sort: Rating</option>
                         <option value="deliveries">Sort: Deliveries</option>
                         <option value="on_time">Sort: On Time</option>
                     </select>
@@ -297,7 +279,6 @@ export default function AdminDrivers() {
                             driver={d}
                             onView={() => openDrawer(d)}
                             onEdit={() => openEdit(d)}
-                            onRecalc={() => recalcRating(d.driver_id)}
                         />
                     ))}
                 </div>
@@ -339,15 +320,6 @@ export default function AdminDrivers() {
                                     {STATUS_MAP[drawer.availability_status]?.label
                                         || drawer.availability_status}
                                 </span>
-                            </div>
-                        </div>
-                        <div style={{ marginLeft: 'auto' }}>
-                            <div style={{ fontSize: 24, fontWeight: 800,
-                                          color: parseFloat(drawer.rating) >= 4.5 ? T.success
-                                               : parseFloat(drawer.rating) >= 3.5 ? T.warning
-                                               : T.danger,
-                                          fontFamily: T.fontHead }}>
-                                ★ {drawer.rating}
                             </div>
                         </div>
                     </div>
@@ -408,10 +380,6 @@ export default function AdminDrivers() {
                         <Btn size="sm" variant="secondary"
                              onClick={() => openEdit(drawer)}>
                             Edit Details
-                        </Btn>
-                        <Btn size="sm" variant="secondary"
-                             onClick={() => recalcRating(drawer.driver_id)}>
-                            Recalc Rating
                         </Btn>
                     </div>
 
@@ -512,14 +480,10 @@ export default function AdminDrivers() {
 }
 
 // ── DRIVER CARD ──────────────────────────────────────────────
-function DriverCard({ driver: d, onView, onEdit, onRecalc }) {
+function DriverCard({ driver: d, onView, onEdit }) {
     const [hovered, setHovered] = useState(false);
     const statusInfo = STATUS_MAP[d.availability_status] ||
         { color: T.textMuted, bg: T.pageBg, label: d.availability_status };
-
-    const ratingColor = parseFloat(d.rating) >= 4.5 ? T.success
-                      : parseFloat(d.rating) >= 3.5 ? T.warning
-                      : T.danger;
 
     const onTimePct = d.completed_deliveries > 0
         ? Math.round((d.on_time_deliveries / d.completed_deliveries) * 100)
@@ -587,13 +551,6 @@ function DriverCard({ driver: d, onView, onEdit, onRecalc }) {
                         {statusInfo.label}
                     </span>
                 </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 20, fontWeight: 800,
-                                  color: ratingColor,
-                                  fontFamily: T.fontHead }}>
-                        ★ {d.rating}
-                    </div>
-                </div>
             </div>
 
             {/* stats row */}
@@ -655,10 +612,6 @@ function DriverCard({ driver: d, onView, onEdit, onRecalc }) {
                 </Btn>
                 <Btn size="sm" variant="secondary" onClick={onEdit}>
                     ✏️
-                </Btn>
-                <Btn size="sm" variant="secondary"
-                     onClick={onRecalc} title="Recalculate rating">
-                    ↻
                 </Btn>
             </div>
         </div>

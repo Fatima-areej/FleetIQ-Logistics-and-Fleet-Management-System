@@ -1,71 +1,87 @@
+/**
+ * FleetIQ light theme — professional SaaS + subtle indigo identity.
+ * Use T.* everywhere; avoid hardcoded dark hex in new UI.
+ */
 export const T = {
-    // backgrounds
-    pageBg:      '#060810',   
-    cardBg:      '#0c0f1d',   
-    sidebarBg:   '#080b16',   
-    inputBg:     'rgba(255,255,255,0.05)',
+    // surfaces
+    pageBg:         '#EEF2FF',
+    pageBgGradient: 'linear-gradient(165deg, #EEF2FF 0%, #F8FAFC 45%, #F1F5F9 100%)',
+    cardBg:         '#FFFFFF',
+    sidebarBg:      '#FFFFFF',
+    topBarBg:       '#FFFFFF',
+    inputBg:        '#F8FAFC',
+    inputBgFocus:   '#FFFFFF',
 
-    // borders
-    border:      'rgba(255,255,255,0.08)',  
-    borderFocus: '#4F46E5',
+    // borders & dividers
+    border:         'rgba(15, 23, 42, 0.07)',
+    borderStrong:   'rgba(15, 23, 42, 0.11)',
+    borderFocus:    '#4F46E5',
 
     // text
-    textPri:     '#F1F5F9',   
-    textSec:     '#94A3B8',  
-    textMuted:   '#475569',
+    textPri:        '#0F172A',
+    textSec:        '#475569',
+    textMuted:      '#94A3B8',
+    textInverse:    '#FFFFFF',
 
-    // accent — indigo
-    accent:      '#4F46E5',
-    accentLight: 'rgba(79,70,229,0.12)',  
-    accentHover: '#4338CA',
+    // brand
+    accent:         '#4F46E5',
+    accentMuted:    '#6366F1',
+    accentLight:    'rgba(79, 70, 229, 0.1)',
+    accentSoft:     '#EEF2FF',
+    accentHover:    '#4338CA',
+    accentRing:     'rgba(79, 70, 229, 0.35)',
+
+    // overlays (modals, drawers)
+    overlay:        'rgba(15, 23, 42, 0.42)',
 
     // semantic
-    success:     '#059669',
-    successLight:'rgba(5,150,105,0.12)',   // was #ECFDF5
-    warning:     '#D97706',
-    warningLight:'rgba(217,119,6,0.12)',   // was #FFFBEB
-    danger:      '#DC2626',
-    dangerLight: 'rgba(220,38,38,0.12)',   // was #FEF2F2
-    info:        '#0284C7',
-    infoLight:   'rgba(2,132,199,0.12)',   // was #F0F9FF
+    success:        '#059669',
+    successLight:   'rgba(5, 150, 105, 0.1)',
+    warning:        '#D97706',
+    warningLight:   'rgba(217, 119, 6, 0.12)',
+    danger:         '#DC2626',
+    dangerLight:    'rgba(220, 38, 38, 0.1)',
+    info:           '#0369A1',
+    infoLight:      'rgba(3, 105, 161, 0.1)',
 
-    // status colors
+    // shipment / workflow chips (readable on white)
     status: {
-        created:          { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)', label: 'Created'          },
-        assigned:         { color: '#38BDF8', bg: 'rgba(56,189,248,0.12)',  label: 'Assigned'         },
-        in_transit:       { color: '#FCD34D', bg: 'rgba(252,211,77,0.12)',  label: 'In Transit'       },
-        at_warehouse:     { color: '#67E8F9', bg: 'rgba(103,232,249,0.12)', label: 'At Warehouse'     },
-        out_for_delivery: { color: '#34D399', bg: 'rgba(52,211,153,0.12)',  label: 'Out for Delivery' },
-        delivered:        { color: '#34D399', bg: 'rgba(52,211,153,0.12)',  label: 'Delivered'        },
-        cancelled:        { color: '#F87171', bg: 'rgba(248,113,113,0.12)', label: 'Cancelled'        },
+        created:          { color: '#64748B', bg: '#F1F5F9', label: 'Created' },
+        assigned:         { color: '#0369A1', bg: '#E0F2FE', label: 'Assigned' },
+        in_transit:       { color: '#B45309', bg: '#FEF3C7', label: 'In Transit' },
+        at_warehouse:     { color: '#0E7490', bg: '#CFFAFE', label: 'At Warehouse' },
+        out_for_delivery: { color: '#047857', bg: '#D1FAE5', label: 'Out for Delivery' },
+        delivered:        { color: '#047857', bg: '#D1FAE5', label: 'Delivered' },
+        cancelled:        { color: '#B91C1C', bg: '#FEE2E2', label: 'Cancelled' },
     },
 
     priority: {
-        low:    { color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' },
-        normal: { color: '#60A5FA', bg: 'rgba(96,165,250,0.12)'  },
-        high:   { color: '#FCD34D', bg: 'rgba(252,211,77,0.12)'  },
-        urgent: { color: '#F87171', bg: 'rgba(248,113,113,0.12)' },
+        low:    { color: '#64748B', bg: '#F1F5F9' },
+        normal: { color: '#2563EB', bg: '#DBEAFE' },
+        high:   { color: '#B45309', bg: '#FEF3C7' },
+        urgent: { color: '#B91C1C', bg: '#FEE2E2' },
     },
 
     // layout
-    sideW:       240,
-    sideWCollapsed: 64,
-    topH:        60,
+    sideW:            252,
+    sideWCollapsed:   72,
+    topH:             56,
 
-    // shadows
-    shadow:   '0 1px 3px rgba(0,0,0,0.4)',
-    shadowMd: '0 4px 12px rgba(0,0,0,0.4)',
-    shadowLg: '0 10px 25px rgba(0,0,0,0.5)',
-    shadowXl: '0 20px 40px rgba(0,0,0,0.6)',
+    // elevation (light)
+    shadow:           '0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.06)',
+    shadowMd:         '0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05)',
+    shadowLg:         '0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04)',
+    shadowXl:         '0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.04)',
+    shadowSidebar:    '4px 0 24px rgba(15, 23, 42, 0.06)',
 
-    // radii
-    radius:      '10px',
-    radiusSm:    '6px',
-    radiusLg:    '16px',
-    radiusXl:    '20px',
-    radiusFull:  '9999px',
+    // radii — slightly softer product feel
+    radius:           '12px',
+    radiusSm:         '8px',
+    radiusLg:         '18px',
+    radiusXl:         '22px',
+    radiusFull:       '9999px',
 
-    // fonts
-    fontHead:    "'Syne', sans-serif",
-    fontBody:    "'DM Sans', sans-serif",
+    // typography (loaded in index.css)
+    fontHead:         "'Outfit', 'Syne', system-ui, sans-serif",
+    fontBody:         "'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif",
 };

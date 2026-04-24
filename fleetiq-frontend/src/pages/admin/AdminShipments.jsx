@@ -67,7 +67,7 @@ const PRIORITY_OPTIONS = [
     { value: 'urgent', label: 'Urgent' },
 ];
 
-export default function AdminShipments() {
+export default function AdminShipments({ readOnly = false, managerLocked = false }) {
     const [shipments,    setShipments]    = useState([]);
     const [warehouses,   setWarehouses]   = useState([]);
     const [loading,      setLoading]      = useState(true);
@@ -92,6 +92,8 @@ export default function AdminShipments() {
     const [availV,    setAvailV]    = useState([]);
     const [selD,      setSelD]      = useState('');
     const [selV,      setSelV]      = useState('');
+    const [assignMode,setAssignMode]= useState('direct'); // direct | via_warehouse
+    const [assignWh,  setAssignWh]  = useState('');
     const [suggested, setSuggested] = useState(null);
     const [assignMsg, setAssignMsg] = useState('');
 
@@ -128,8 +130,27 @@ export default function AdminShipments() {
 
     useEffect(() => {
         fetchShipments();
-        API.get('/warehouses').then(r => setWarehouses(r.data));
-    }, [fetchShipments]);
+        API.get(managerLocked ? '/warehouses/my' : '/warehouses')
+            .then(r => setWarehouses(r.data));
+    }, [fetchShipments, managerLocked]);
+
+    useEffect(() => {
+        if (!assignModal || assignMode !== 'via_warehouse' || !assignWh) return;
+        const s = shipments.find(sh => sh.shipment_id == assignModal);
+        const oid = s?.origin_warehouse_id;
+        if (oid != null && parseInt(assignWh, 10) === Number(oid)) {
+            setAssignWh('');
+        }
+    }, [assignModal, assignMode, assignWh, shipments]);
+
+    useEffect(() => {
+        if (!transferModal || !transferWh) return;
+        const s = shipments.find(sh => sh.shipment_id == transferModal);
+        const oid = s?.origin_warehouse_id;
+        if (oid != null && parseInt(transferWh, 10) === Number(oid)) {
+            setTransferWh('');
+        }
+    }, [transferModal, transferWh, shipments]);
 
     const openDrawer = async (shipment_id) => {
         setDrawer(shipment_id);
@@ -148,6 +169,8 @@ export default function AdminShipments() {
     const openAssign = async (shipment_id) => {
         setAssignModal(shipment_id);
         setSelD(''); setSelV('');
+        setAssignMode('direct');
+        setAssignWh('');
         setAssignMsg(''); setSuggested(null);
         const [dRes, vRes, sugRes] = await Promise.all([
             API.get('/drivers/available'),
@@ -168,9 +191,25 @@ export default function AdminShipments() {
             setAssignMsg('Please select both a driver and vehicle.');
             return;
         }
+        if (assignMode === 'via_warehouse' && !assignWh) {
+            setAssignMsg('Please select a transfer warehouse.');
+            return;
+        }
+        const assignShip = shipments.find(s => s.shipment_id == assignModal);
+        const originId = assignShip?.origin_warehouse_id;
+        if (
+            assignMode === 'via_warehouse' &&
+            originId != null &&
+            parseInt(assignWh, 10) === Number(originId)
+        ) {
+            setAssignMsg('Transfer warehouse cannot be the same as the origin warehouse.');
+            return;
+        }
         try {
             await API.post(`/shipments/${assignModal}/assign`, {
                 driver_id: parseInt(selD), vehicle_id: parseInt(selV),
+                delivery_mode: assignMode,
+                transfer_warehouse_id: assignMode === 'via_warehouse' ? parseInt(assignWh) : null,
             });
             setAssignModal(null);
             showMsg('Shipment assigned successfully.');
@@ -239,11 +278,34 @@ export default function AdminShipments() {
     const submitTransfer = async () => {
         if (!transferWh) return;
         try {
-            await API.post(`/shipments/${transferModal}/transfer`, {
-                warehouse_id: parseInt(transferWh),
-            });
+            const ship = shipments.find(s => s.shipment_id == transferModal);
+            const setTransferWarehouseOnly =
+                ship &&
+                ship.delivery_mode === 'via_warehouse' &&
+                !ship.transfer_warehouse_id &&
+                ['assigned', 'in_transit', 'at_warehouse'].includes(ship.status);
+
+            if (
+                setTransferWarehouseOnly &&
+                ship.origin_warehouse_id != null &&
+                parseInt(transferWh, 10) === Number(ship.origin_warehouse_id)
+            ) {
+                showMsg('Transfer warehouse cannot be the same as the origin warehouse.', false);
+                return;
+            }
+
+            if (setTransferWarehouseOnly) {
+                await API.patch(`/shipments/${transferModal}/transfer-warehouse`, {
+                    transfer_warehouse_id: parseInt(transferWh),
+                });
+                showMsg('Transfer warehouse saved.');
+            } else {
+                await API.post(`/shipments/${transferModal}/transfer`, {
+                    warehouse_id: parseInt(transferWh),
+                });
+                showMsg('Transferred to warehouse.');
+            }
             setTransferModal(null);
-            showMsg('Transferred to warehouse.');
             fetchShipments();
         } catch (err) {
             showMsg(err.response?.data?.error || 'Failed.', false);
@@ -277,6 +339,24 @@ export default function AdminShipments() {
                        s.status !== 'delivered').length,
         delivered: shipments.filter(s => s.status === 'delivered').length,
     };
+
+    const assignShipForModal = assignModal
+        ? shipments.find(s => s.shipment_id == assignModal)
+        : null;
+    const assignOriginId = assignShipForModal?.origin_warehouse_id;
+    const transferWarehousesForAssign =
+        assignOriginId == null
+            ? warehouses
+            : warehouses.filter(w => Number(w.warehouse_id) !== Number(assignOriginId));
+
+    const transferShipForModal = transferModal
+        ? shipments.find(s => s.shipment_id == transferModal)
+        : null;
+    const transferOriginId = transferShipForModal?.origin_warehouse_id;
+    const transferWarehousesForTransferModal =
+        transferOriginId == null
+            ? warehouses
+            : warehouses.filter(w => Number(w.warehouse_id) !== Number(transferOriginId));
 
     return (
         <div style={{ animation: 'fadeIn 0.2s ease' }}>
@@ -401,11 +481,13 @@ export default function AdminShipments() {
                         ⚠ Delayed only
                     </button>
 
-                    <div style={{ marginLeft: 'auto' }}>
-                        <Btn onClick={() => setCreateModal(true)} icon="＋">
-                            New Shipment
-                        </Btn>
-                    </div>
+                    {!readOnly && (
+                        <div style={{ marginLeft: 'auto' }}>
+                            <Btn onClick={() => setCreateModal(true)} icon="＋">
+                                New Shipment
+                            </Btn>
+                        </div>
+                    )}
                 </div>
 
                 {/* active filter chips */}
@@ -555,13 +637,13 @@ export default function AdminShipments() {
                                                         onClick={() => openDrawer(s.shipment_id)}>
                                                         View
                                                     </Btn>
-                                                    {s.status === 'created' && (
+                                                    {!readOnly && s.status === 'created' && (
                                                         <Btn size="sm"
                                                             onClick={() => openAssign(s.shipment_id)}>
                                                             Assign
                                                         </Btn>
                                                     )}
-                                                    {['assigned','in_transit'].includes(s.status) && (
+                                                    {!readOnly && !managerLocked && s.delivery_mode !== 'direct' && ['assigned','in_transit','at_warehouse'].includes(s.status) && (
                                                         <Btn size="sm" variant="secondary"
                                                             onClick={() => {
                                                                 setTransferModal(s.shipment_id);
@@ -570,13 +652,28 @@ export default function AdminShipments() {
                                                             Transfer
                                                         </Btn>
                                                     )}
-                                                    {s.status === 'out_for_delivery' && (
+                                                    {!readOnly && managerLocked && s.delivery_mode === 'via_warehouse' && !s.transfer_warehouse_id && ['assigned','in_transit','at_warehouse'].includes(s.status) && (
+                                                        <Btn size="sm" variant="secondary"
+                                                            onClick={() => {
+                                                                setTransferModal(s.shipment_id);
+                                                                setTransferWh('');
+                                                            }}>
+                                                            Set transfer warehouse
+                                                        </Btn>
+                                                    )}
+                                                    {!readOnly && !managerLocked && s.status === 'out_for_delivery' && (
                                                         <Btn size="sm" color={T.success}
                                                             onClick={() => completeShipment(s.shipment_id)}>
                                                             Deliver
                                                         </Btn>
                                                     )}
-                                                    {!['delivered','cancelled'].includes(s.status) && (
+                                                    {!readOnly && managerLocked && s.status !== 'created' && !['delivered','cancelled'].includes(s.status) && (
+                                                        <Btn size="sm" variant="danger"
+                                                            onClick={() => cancelShipment(s.shipment_id)}>
+                                                            Delete
+                                                        </Btn>
+                                                    )}
+                                                    {!readOnly && !managerLocked && !['delivered','cancelled'].includes(s.status) && (
                                                         <Btn size="sm" variant="danger"
                                                             onClick={() => cancelShipment(s.shipment_id)}>
                                                             Cancel
@@ -609,6 +706,8 @@ export default function AdminShipments() {
                     ) : drawerData ? (
                         <ShipmentDetail
                             data={drawerData}
+                            readOnly={readOnly}
+                            managerLocked={managerLocked}
                             onAssign={() => openAssign(drawer)}
                             onCancel={() => cancelShipment(drawer)}
                             onComplete={() => completeShipment(drawer)}
@@ -626,7 +725,7 @@ export default function AdminShipments() {
             )}
 
             {/* ── ASSIGN MODAL ── */}
-            {assignModal && (
+            {!readOnly && assignModal && (
                 <Modal title={`Assign Shipment #${assignModal}`}
                        onClose={() => setAssignModal(null)}>
                     {suggested && (
@@ -673,6 +772,59 @@ export default function AdminShipments() {
                         }))}
                     />
 
+                    <div style={{
+                        margin: '10px 0 12px',
+                        padding: 10,
+                        border: `1px solid ${T.border}`,
+                        borderRadius: T.radius,
+                        background: T.pageBg,
+                    }}>
+                        <div style={{ fontSize: 11, color: T.textMuted,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.08em',
+                                      fontWeight: 700, marginBottom: 8 }}>
+                            Routing
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', gap: 8, alignItems: 'center',
+                                            color: T.textSec, fontSize: 13, cursor: 'pointer' }}>
+                                <input
+                                    type="radio"
+                                    name="assignMode"
+                                    checked={assignMode === 'direct'}
+                                    onChange={() => setAssignMode('direct')}
+                                />
+                                Transfer to destination (direct)
+                            </label>
+                            <label style={{ display: 'flex', gap: 8, alignItems: 'center',
+                                            color: T.textSec, fontSize: 13, cursor: 'pointer' }}>
+                                <input
+                                    type="radio"
+                                    name="assignMode"
+                                    checked={assignMode === 'via_warehouse'}
+                                    onChange={() => setAssignMode('via_warehouse')}
+                                />
+                                Transfer to warehouse first
+                            </label>
+                        </div>
+
+                        {assignMode === 'via_warehouse' && (
+                            <div style={{ marginTop: 10 }}>
+                                <FormSelect
+                                    label="Transfer Warehouse"
+                                    value={assignWh}
+                                    onChange={setAssignWh}
+                                    required
+                                    placeholder="— select warehouse —"
+                                    options={transferWarehousesForAssign.map(w => ({
+                                        value: w.warehouse_id,
+                                        label: `${w.warehouse_name} — ${w.city}`,
+                                    }))}
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     {assignMsg && (
                         <p style={{ fontSize: 12, color: T.danger,
                                     margin: '0 0 12px' }}>
@@ -693,7 +845,7 @@ export default function AdminShipments() {
             )}
 
             {/* ── CREATE SHIPMENT MODAL ── */}
-            {createModal && (
+            {!readOnly && createModal && (
                 <Modal title="Create New Shipment"
                        onClose={() => setCreateModal(false)}
                        width={520}>
@@ -871,8 +1023,17 @@ export default function AdminShipments() {
             )}
 
             {/* ── TRANSFER MODAL ── */}
-            {transferModal && (
-                <Modal title={`Transfer Shipment #${transferModal}`}
+            {!readOnly && transferModal && (
+                <Modal title={`${
+                    (() => {
+                        const ship = shipments.find(s => s.shipment_id == transferModal);
+                        const setOnly = ship &&
+                            ship.delivery_mode === 'via_warehouse' &&
+                            !ship.transfer_warehouse_id &&
+                            ['assigned', 'in_transit', 'at_warehouse'].includes(ship.status);
+                        return setOnly ? 'Set transfer warehouse' : 'Transfer shipment';
+                    })()
+                } #${transferModal}`}
                        onClose={() => setTransferModal(null)}>
                     <FormSelect
                         label="Transfer to Warehouse"
@@ -880,14 +1041,21 @@ export default function AdminShipments() {
                         onChange={setTransferWh}
                         required
                         placeholder="— select warehouse —"
-                        options={warehouses.map(w => ({
+                        options={transferWarehousesForTransferModal.map(w => ({
                             value: w.warehouse_id,
                             label: `${w.warehouse_name} — ${w.city} (${w.current_load}/${w.capacity_units})`,
                         }))}
                     />
                     <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                         <Btn onClick={submitTransfer} fullWidth>
-                            Confirm Transfer
+                            {(() => {
+                                const ship = shipments.find(s => s.shipment_id == transferModal);
+                                const setOnly = ship &&
+                                    ship.delivery_mode === 'via_warehouse' &&
+                                    !ship.transfer_warehouse_id &&
+                                    ['assigned', 'in_transit', 'at_warehouse'].includes(ship.status);
+                                return setOnly ? 'Save transfer warehouse' : 'Confirm Transfer';
+                            })()}
                         </Btn>
                         <Btn variant="secondary" fullWidth
                              onClick={() => setTransferModal(null)}>
@@ -901,8 +1069,23 @@ export default function AdminShipments() {
 }
 
 // ── SHIPMENT DETAIL (inside drawer) ─────────────────────────
-function ShipmentDetail({ data, onAssign, onCancel, onComplete, onTransfer }) {
+function ShipmentDetail({ data, readOnly, managerLocked, onAssign, onCancel, onComplete, onTransfer }) {
     const { shipment, history, items, stops } = data;
+
+    const deliveryModeLabel =
+        shipment.delivery_mode === 'via_warehouse' ? 'Via warehouse' : 'Direct';
+
+    const transferWarehouseLabel = (() => {
+        if (shipment.delivery_mode !== 'via_warehouse') return '—';
+        if (shipment.transfer_warehouse) {
+            const city = shipment.transfer_city ? ` (${shipment.transfer_city})` : '';
+            return `${shipment.transfer_warehouse}${city}`;
+        }
+        if (shipment.transfer_warehouse_id) {
+            return `Warehouse #${shipment.transfer_warehouse_id} (name not loaded)`;
+        }
+        return 'Not set yet';
+    })();
 
     const isDelayed = shipment.estimated_delivery &&
         new Date(shipment.estimated_delivery) < new Date() &&
@@ -989,6 +1172,8 @@ function ShipmentDetail({ data, onAssign, onCancel, onComplete, onTransfer }) {
                     ['Driver',    shipment.driver_name  || '—'],
                     ['Vehicle',   shipment.plate_number || '—'],
                     ['Origin',    shipment.origin_warehouse || '—'],
+                    ['Delivery mode', deliveryModeLabel],
+                    ['Transfer warehouse', transferWarehouseLabel],
                     ['Weight',    shipment.weight_kg ? `${shipment.weight_kg} kg` : '—'],
                     ['Created',   new Date(shipment.created_at).toLocaleString()],
                     ['ETA',       shipment.estimated_delivery
@@ -1153,20 +1338,30 @@ function ShipmentDetail({ data, onAssign, onCancel, onComplete, onTransfer }) {
             <div style={{ display: 'flex', flexWrap: 'wrap',
                           gap: 8, paddingTop: '1rem',
                           borderTop: `1px solid ${T.border}` }}>
-                {shipment.status === 'created' && (
+                {!readOnly && shipment.status === 'created' && (
                     <Btn size="sm" onClick={onAssign}>Assign Driver</Btn>
                 )}
-                {['assigned','in_transit'].includes(shipment.status) && (
+                {!readOnly && !managerLocked && shipment.delivery_mode !== 'direct' && ['assigned','in_transit','at_warehouse'].includes(shipment.status) && (
                     <Btn size="sm" variant="secondary" onClick={onTransfer}>
                         Transfer
                     </Btn>
                 )}
-                {shipment.status === 'out_for_delivery' && (
+                {!readOnly && managerLocked && shipment.delivery_mode === 'via_warehouse' && !shipment.transfer_warehouse_id && ['assigned','in_transit','at_warehouse'].includes(shipment.status) && (
+                    <Btn size="sm" variant="secondary" onClick={onTransfer}>
+                        Set transfer warehouse
+                    </Btn>
+                )}
+                {!readOnly && !managerLocked && shipment.status === 'out_for_delivery' && (
                     <Btn size="sm" color={T.success} onClick={onComplete}>
                         Mark Delivered
                     </Btn>
                 )}
-                {!['delivered','cancelled'].includes(shipment.status) && (
+                {!readOnly && managerLocked && shipment.status !== 'created' && !['delivered','cancelled'].includes(shipment.status) && (
+                    <Btn size="sm" variant="danger" onClick={onCancel}>
+                        Delete
+                    </Btn>
+                )}
+                {!readOnly && !managerLocked && !['delivered','cancelled'].includes(shipment.status) && (
                     <Btn size="sm" variant="danger" onClick={onCancel}>
                         Cancel
                     </Btn>

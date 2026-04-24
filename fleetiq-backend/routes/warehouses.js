@@ -27,6 +27,30 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
+// GET /api/warehouses/my — manager sees only assigned warehouses
+router.get('/my', auth, async (req, res) => {
+    if (req.user.role !== 'manager') {
+        return res.status(403).json({ error: 'Manager access required.' });
+    }
+    try {
+        const result = await pool.query(
+            `SELECT wtv.*
+             FROM warehouse_throughput_view wtv
+             JOIN manager_warehouse_assignments mwa
+               ON mwa.warehouse_id = wtv.warehouse_id
+              AND mwa.is_active = TRUE
+             WHERE wtv.org_id = $1
+               AND mwa.manager_id = $2
+             ORDER BY wtv.warehouse_name`,
+            [req.user.org_id, req.user.user_id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch manager warehouses.' });
+    }
+});
+
 // GET /api/warehouses/map
 //PostGIS function ST_Y gets latitude and ST_X gets longitude from the location column,
 //which is stored as a geography point type.

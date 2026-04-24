@@ -166,6 +166,11 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_sender_name TEXT;
 BEGIN
+    -- Thread replies appear in Memos; notify only on new top-level memos
+    IF NEW.parent_memo_id IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
     -- get sender name for a meaningful message
     SELECT name INTO v_sender_name
     FROM users WHERE user_id = NEW.sender_id;

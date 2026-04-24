@@ -26,13 +26,6 @@ const VEHICLE_STATUS_MAP = {
     maintenance: { color: T.warning, bg: T.warningLight, label: 'Maintenance' },
 };
 
-const MAINTENANCE_TYPES = [
-    { value: 'routine',    label: 'Routine'    },
-    { value: 'repair',     label: 'Repair'     },
-    { value: 'inspection', label: 'Inspection' },
-    { value: 'emergency',  label: 'Emergency'  },
-];
-
 export default function AdminFleet() {
     const [vehicles,    setVehicles]    = useState([]);
     const [loading,     setLoading]     = useState(true);
@@ -42,22 +35,21 @@ export default function AdminFleet() {
 
     // drawer
     const [drawer,      setDrawer]      = useState(null);
-    const [maintenance, setMaintenance] = useState([]);
-    const [maintLoad,   setMaintLoad]   = useState(false);
 
     // modals
     const [addModal,    setAddModal]    = useState(false);
-    const [maintModal,  setMaintModal]  = useState(null);
+    const [maintModal,  setMaintModal]  = useState(null); // vehicle
 
     // forms
     const [newVeh, setNewVeh] = useState({
         plate_number: '', vehicle_type: 'Van',
         capacity_kg: '', purchase_date: '',
     });
-    const [newMaint, setNewMaint] = useState({
-        maintenance_type: 'routine', description: '',
-        cost: '', performed_by: '',
-    });
+
+    const [managers,   setManagers]   = useState([]);
+    const [selManager, setSelManager] = useState('');
+    const [maintNote,  setMaintNote]  = useState('');
+    const [maintPrio,  setMaintPrio]  = useState('normal');
 
     const showMsg = (text, good = true) => {
         setMsg({ text, good });
@@ -80,15 +72,6 @@ export default function AdminFleet() {
 
     const openDrawer = async (vehicle) => {
         setDrawer(vehicle);
-        setMaintLoad(true);
-        try {
-            const res = await API.get(`/vehicles/${vehicle.vehicle_id}/maintenance`);
-            setMaintenance(res.data);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setMaintLoad(false);
-        }
     };
 
     const submitAdd = async () => {
@@ -104,33 +87,39 @@ export default function AdminFleet() {
         }
     };
 
-    const submitMaintenance = async () => {
+    const openMaintenance = async (vehicle) => {
+        setMaintModal(vehicle);
+        setSelManager('');
+        setMaintNote('');
+        setMaintPrio('normal');
         try {
-            await API.post(`/vehicles/${maintModal}/maintenance`, newMaint);
-            setMaintModal(null);
-            setNewMaint({ maintenance_type: 'routine', description: '',
-                          cost: '', performed_by: '' });
-            showMsg('Maintenance log added.');
-            fetchVehicles();
-            if (drawer) {
-                const res = await API.get(`/vehicles/${maintModal}/maintenance`);
-                setMaintenance(res.data);
-            }
+            const res = await API.get('/org/users?role=manager');
+            setManagers(res.data || []);
         } catch (err) {
-            showMsg(err.response?.data?.error || 'Failed.', false);
+            showMsg(err.response?.data?.error || 'Failed to load managers.', false);
+            setManagers([]);
         }
     };
 
-    const setAvailable = async (vehicle_id) => {
+    const submitMaintenance = async () => {
+        if (!maintModal?.vehicle_id) return;
+        if (!selManager) {
+            showMsg('Select a manager.', false);
+            return;
+        }
         try {
-            await API.patch(`/vehicles/${vehicle_id}/set-available`);
-            showMsg('Vehicle set to available.');
+            await API.post('/maintenance-requests/admin', {
+                vehicle_id: maintModal.vehicle_id,
+                assigned_manager_id: parseInt(selManager),
+                title: `Admin maintenance request — ${maintModal.plate_number}`,
+                description: maintNote,
+                priority: maintPrio,
+            });
+            showMsg('Maintenance request created.');
+            setMaintModal(null);
             fetchVehicles();
-            if (drawer?.vehicle_id === vehicle_id) {
-                setDrawer(prev => ({ ...prev, current_status: 'available' }));
-            }
         } catch (err) {
-            showMsg('Failed.', false);
+            showMsg(err.response?.data?.error || 'Failed to create request.', false);
         }
     };
 
@@ -282,13 +271,7 @@ export default function AdminFleet() {
                             key={v.vehicle_id}
                             vehicle={v}
                             onView={() => openDrawer(v)}
-                            onMaintenance={() => {
-                                setMaintModal(v.vehicle_id);
-                                setNewMaint({ maintenance_type: 'routine',
-                                              description: '', cost: '',
-                                              performed_by: '' });
-                            }}
-                            onSetAvailable={() => setAvailable(v.vehicle_id)}
+                            onRequestMaintenance={() => openMaintenance(v)}
                         />
                     ))}
                 </div>
@@ -316,8 +299,6 @@ export default function AdminFleet() {
                             ['Type',        drawer.vehicle_type],
                             ['Capacity',    `${drawer.capacity_kg || '—'} kg`],
                             ['Total Trips', drawer.total_trips || 0],
-                            ['Maint. Cost', `₨${(drawer.total_maintenance_cost || 0).toLocaleString()}`],
-                            ['Services',    drawer.maintenance_count || 0],
                         ].map(([label, val]) => (
                             <div key={label} style={{
                                 padding: '10px 12px',
@@ -343,82 +324,7 @@ export default function AdminFleet() {
                                   marginBottom: '1.5rem',
                                   paddingBottom: '1.25rem',
                                   borderBottom: `1px solid ${T.border}` }}>
-                        <Btn size="sm" variant="secondary"
-                             onClick={() => {
-                                 setMaintModal(drawer.vehicle_id);
-                                 setNewMaint({ maintenance_type: 'routine',
-                                               description: '', cost: '',
-                                               performed_by: '' });
-                             }}>
-                            + Log Maintenance
-                        </Btn>
-                        {drawer.current_status === 'maintenance' && (
-                            <Btn size="sm" color={T.success}
-                                 onClick={() => setAvailable(drawer.vehicle_id)}>
-                                Mark Available
-                            </Btn>
-                        )}
                     </div>
-
-                    {/* maintenance history */}
-                    <p style={{ margin: '0 0 10px', fontSize: 13,
-                                fontWeight: 600, color: T.textPri }}>
-                        Maintenance history
-                    </p>
-
-                    {maintLoad ? (
-                        <div style={{ display: 'flex', flexDirection: 'column',
-                                      gap: 8 }}>
-                            {[...Array(3)].map((_, i) => (
-                                <SkeletonCard key={i} height={60} />
-                            ))}
-                        </div>
-                    ) : maintenance.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
-                            <p style={{ color: T.textMuted, fontSize: 13, margin: 0 }}>
-                                No maintenance records yet
-                            </p>
-                        </div>
-                    ) : (
-                        maintenance.map((m, i) => (
-                            <div key={i} style={{
-                                padding: '10px 12px',
-                                background: T.pageBg,
-                                borderRadius: T.radius,
-                                marginBottom: 8,
-                                borderLeft: `3px solid ${
-                                    m.maintenance_type === 'emergency' ? T.danger
-                                  : m.maintenance_type === 'repair'    ? T.warning
-                                  : T.success
-                                }`,
-                            }}>
-                                <div style={{
-                                    display: 'flex', justifyContent: 'space-between',
-                                    alignItems: 'flex-start', marginBottom: 4,
-                                }}>
-                                    <span style={{ fontSize: 12, fontWeight: 600,
-                                                   color: T.textPri,
-                                                   textTransform: 'capitalize' }}>
-                                        {m.maintenance_type}
-                                    </span>
-                                    <span style={{ fontSize: 12, fontWeight: 700,
-                                                   color: T.textPri }}>
-                                        ₨{parseFloat(m.cost || 0).toLocaleString()}
-                                    </span>
-                                </div>
-                                {m.description && (
-                                    <p style={{ margin: '0 0 4px', fontSize: 12,
-                                                color: T.textSec }}>
-                                        {m.description}
-                                    </p>
-                                )}
-                                <div style={{ fontSize: 11, color: T.textMuted }}>
-                                    {m.performed_by && `By ${m.performed_by} · `}
-                                    {new Date(m.performed_at).toLocaleDateString()}
-                                </div>
-                            </div>
-                        ))
-                    )}
                 </Drawer>
             )}
 
@@ -461,71 +367,57 @@ export default function AdminFleet() {
                 </Modal>
             )}
 
-            {/* ── ADD MAINTENANCE MODAL ── */}
             {maintModal && (
-                <Modal title="Log Maintenance"
-                       onClose={() => setMaintModal(null)}>
+                <Modal
+                    title={`Create maintenance request — ${maintModal.plate_number}`}
+                    onClose={() => setMaintModal(null)}
+                    width={520}
+                >
                     <FormSelect
-                        label="Type" required
-                        value={newMaint.maintenance_type}
-                        onChange={v => setNewMaint({...newMaint, maintenance_type: v})}
-                        options={MAINTENANCE_TYPES}
+                        label="Assign to manager"
+                        value={selManager}
+                        onChange={setSelManager}
+                        required
+                        placeholder="— select manager —"
+                        options={managers.map(m => ({
+                            value: m.user_id,
+                            label: `${m.name} (${m.email})`,
+                        }))}
                     />
-                    <div style={{ marginBottom: 16 }}>
-                        <label style={{
-                            display: 'block', fontSize: 12, fontWeight: 600,
-                            color: T.textSec, marginBottom: 6,
-                            letterSpacing: '0.04em', textTransform: 'uppercase',
-                        }}>
-                            Description
-                        </label>
-                        <textarea
-                            value={newMaint.description}
-                            onChange={e => setNewMaint({...newMaint,
-                                description: e.target.value})}
-                            placeholder="Describe the maintenance work..."
-                            rows={3}
-                            style={{
-                                width: '100%', padding: '9px 12px',
-                                background: T.inputBg,
-                                border: `1.5px solid ${T.border}`,
-                                borderRadius: T.radius,
-                                color: T.textPri, fontSize: 13,
-                                resize: 'vertical', outline: 'none',
-                                fontFamily: T.fontBody,
-                                boxSizing: 'border-box',
-                            }}
-                        />
-                    </div>
-                    <FormInput
-                        label="Cost (₨)"
-                        value={newMaint.cost}
-                        onChange={v => setNewMaint({...newMaint, cost: v})}
-                        placeholder="15000" type="number"
+                    <FormSelect
+                        label="Priority"
+                        value={maintPrio}
+                        onChange={setMaintPrio}
+                        options={[
+                            { value: 'low', label: 'Low' },
+                            { value: 'normal', label: 'Normal' },
+                            { value: 'high', label: 'High' },
+                            { value: 'urgent', label: 'Urgent' },
+                        ]}
                     />
                     <FormInput
-                        label="Performed By"
-                        value={newMaint.performed_by}
-                        onChange={v => setNewMaint({...newMaint, performed_by: v})}
-                        placeholder="Ali Motors Lahore"
+                        label="Description (optional)"
+                        value={maintNote}
+                        onChange={setMaintNote}
+                        placeholder="Reason / details…"
                     />
                     <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                         <Btn onClick={submitMaintenance} fullWidth>
-                            Save Record
+                            Create request
                         </Btn>
-                        <Btn variant="secondary" fullWidth
-                             onClick={() => setMaintModal(null)}>
+                        <Btn variant="secondary" fullWidth onClick={() => setMaintModal(null)}>
                             Cancel
                         </Btn>
                     </div>
                 </Modal>
             )}
+
         </div>
     );
 }
 
 // ── VEHICLE CARD ─────────────────────────────────────────────
-function VehicleCard({ vehicle: v, onView, onMaintenance, onSetAvailable }) {
+function VehicleCard({ vehicle: v, onView, onRequestMaintenance }) {
     const [hovered, setHovered] = useState(false);
     const statusInfo = VEHICLE_STATUS_MAP[v.current_status] ||
         { color: T.textMuted, bg: T.pageBg, label: v.current_status };
@@ -596,7 +488,7 @@ function VehicleCard({ vehicle: v, onView, onMaintenance, onSetAvailable }) {
                 {[
                     ['Capacity', `${v.capacity_kg || '—'}kg`],
                     ['Trips',    v.total_trips || 0],
-                    ['Services', v.maintenance_count || 0],
+                    ['Status',   statusInfo.label],
                 ].map(([label, val]) => (
                     <div key={label} style={{
                         padding: '8px 6px',
@@ -617,26 +509,6 @@ function VehicleCard({ vehicle: v, onView, onMaintenance, onSetAvailable }) {
                 ))}
             </div>
 
-            {/* maintenance cost */}
-            {v.total_maintenance_cost > 0 && (
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '6px 10px',
-                    background: T.warningLight,
-                    borderRadius: T.radiusSm,
-                    marginBottom: '1rem',
-                    fontSize: 12,
-                }}>
-                    <span style={{ color: T.textSec }}>
-                        Total maintenance cost
-                    </span>
-                    <span style={{ fontWeight: 700, color: T.warning }}>
-                        ₨{parseFloat(v.total_maintenance_cost).toLocaleString()}
-                    </span>
-                </div>
-            )}
-
             {/* actions */}
             <div style={{ display: 'flex', gap: 8 }}>
                 <Btn size="sm" variant="secondary"
@@ -644,15 +516,8 @@ function VehicleCard({ vehicle: v, onView, onMaintenance, onSetAvailable }) {
                     View Details
                 </Btn>
                 {v.current_status === 'available' && (
-                    <Btn size="sm" variant="secondary"
-                         onClick={onMaintenance}>
-                        🔧
-                    </Btn>
-                )}
-                {v.current_status === 'maintenance' && (
-                    <Btn size="sm" color={T.success}
-                         onClick={onSetAvailable}>
-                        ✓
+                    <Btn size="sm" onClick={onRequestMaintenance}>
+                        Maintenance
                     </Btn>
                 )}
             </div>

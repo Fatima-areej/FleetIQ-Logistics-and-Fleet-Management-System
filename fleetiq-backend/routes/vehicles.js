@@ -62,22 +62,6 @@ router.get('/map', auth, async (req, res) => {
     }
 });
 
-// GET /api/vehicles/:id/maintenance
-router.get('/:id/maintenance', auth, async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT * FROM vehicle_maintenance
-             WHERE vehicle_id = $1
-             ORDER BY performed_at DESC`,
-            [req.params.id]
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to fetch maintenance logs.' });
-    }
-});
-
 // POST /api/vehicles — admin adds vehicle
 
 //only admin can add vehicles, so we use the adminOnly middleware to protect this route.
@@ -123,49 +107,6 @@ router.patch('/:id', auth, adminOnly, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to update vehicle.' });
-    }
-});
-
-// PATCH /api/vehicles/:id/set-available — admin marks vehicle available
-router.patch('/:id/set-available', auth, adminOnly, async (req, res) => {
-    try {
-        await pool.query(
-            `UPDATE vehicles SET status = 'available'
-             WHERE vehicle_id = $1 AND org_id = $2`,
-            [req.params.id, req.user.org_id]
-        );
-        res.json({ message: 'Vehicle set to available.' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to update vehicle status.' });
-    }
-});
-
-// POST /api/vehicles/:id/maintenance — manager adds maintenance log
-router.post('/:id/maintenance', auth, async (req, res) => {
-    const { maintenance_type, description, cost, performed_by } = req.body;
-    try {
-        const result = await pool.query(
-            `INSERT INTO vehicle_maintenance
-                (vehicle_id, maintenance_type, description,
-                 cost, performed_by)
-             VALUES ($1, $2, $3, $4, $5)
-             RETURNING *`,
-            [req.params.id, maintenance_type,
-             description, cost, performed_by]
-        );
-        await pool.query(
-            `UPDATE vehicles SET status = 'maintenance'
-             WHERE vehicle_id = $1`,
-            [req.params.id]
-        );
-        res.status(201).json({
-            message: 'Maintenance log added.',
-            record:  result.rows[0]
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to add maintenance log.' });
     }
 });
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { T } from '../../styles/theme';
 import API from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import Btn from '../../components/ui/Btn';
 import Modal from '../../components/ui/Modal';
 import FormInput from '../../components/ui/FormInput';
@@ -41,11 +42,10 @@ const ROLE_STYLE = {
 };
 
 export default function AdminMemos() {
-    const [inbox,       setInbox]       = useState([]);
-    const [sent,        setSent]        = useState([]);
+    const { user } = useAuth();
+    const [threads,     setThreads]     = useState([]);
     const [recipients,  setRecipients]  = useState([]);
     const [loading,     setLoading]     = useState(true);
-    const [activeTab,   setActiveTab]   = useState('inbox');
     const [msg,         setMsg]         = useState(null);
     const [thread,      setThread]      = useState(null);
     const [threadLoad,  setThreadLoad]  = useState(false);
@@ -63,13 +63,11 @@ export default function AdminMemos() {
     const fetchMemos = async () => {
         try {
             setLoading(true);
-            const [inboxRes, sentRes, recipRes] = await Promise.all([
+            const [threadsRes, recipRes] = await Promise.all([
                 API.get('/memos'),
-                API.get('/memos/sent'),
                 API.get('/memos/recipients'),
             ]);
-            setInbox(inboxRes.data);
-            setSent(sentRes.data);
+            setThreads(threadsRes.data || []);
             setRecipients(recipRes.data);
         } catch (err) {
             console.error(err);
@@ -119,8 +117,10 @@ export default function AdminMemos() {
         }
     };
 
-    const currentList = activeTab === 'inbox' ? inbox : sent;
-    const unread = inbox.filter(m => !m.is_read).length;
+    const unread = threads.filter(m =>
+        m.thread_unread === true || m.thread_unread === 1
+        || (m.thread_unread == null && !m.is_read)
+    ).length;
 
     return (
         <div style={{ animation: 'fadeIn 0.2s ease',
@@ -137,30 +137,15 @@ export default function AdminMemos() {
                     </Btn>
                 </div>
 
-                {/* tabs */}
                 <div style={{
-                    display: 'flex', background: T.cardBg,
-                    border: `1px solid ${T.border}`,
-                    borderRadius: T.radius, padding: 3,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: T.textMuted,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    marginBottom: 2,
                 }}>
-                    {[
-                        { id: 'inbox', label: `Inbox${unread > 0 ? ` (${unread})` : ''}` },
-                        { id: 'sent',  label: 'Sent' },
-                    ].map(tab => (
-                        <button key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            style={{
-                                flex: 1, padding: '6px',
-                                fontSize: 12, fontWeight: activeTab === tab.id ? 600 : 400,
-                                background: activeTab === tab.id ? T.accent : 'transparent',
-                                color: activeTab === tab.id ? '#fff' : T.textSec,
-                                border: 'none', borderRadius: T.radiusSm,
-                                cursor: 'pointer', fontFamily: T.fontBody,
-                                transition: 'all 0.15s',
-                            }}>
-                            {tab.label}
-                        </button>
-                    ))}
+                    Conversations{unread > 0 ? ` · ${unread} unread` : ''}
                 </div>
 
                 {/* memo list */}
@@ -170,22 +155,21 @@ export default function AdminMemos() {
                         [...Array(4)].map((_, i) => (
                             <SkeletonCard key={i} height={72} />
                         ))
-                    ) : currentList.length === 0 ? (
+                    ) : threads.length === 0 ? (
                         <Card style={{ padding: '2rem', textAlign: 'center' }}>
                             <p style={{ color: T.textMuted, fontSize: 13,
                                         margin: 0 }}>
-                                {activeTab === 'inbox'
-                                    ? 'No memos received'
-                                    : 'No memos sent'}
+                                No conversations yet
                             </p>
                         </Card>
                     ) : (
-                        currentList.map((m, i) => {
+                        threads.map((m, i) => {
                             const isActive = thread?.memo?.memo_id === m.memo_id;
-                            const roleStyle = ROLE_STYLE[
-                                activeTab === 'inbox'
-                                    ? m.sender_role : m.receiver_role
-                            ] || { color: T.textMuted, bg: T.pageBg };
+                            const cr = m.counterpart_role || (m.sender_id === user?.user_id ? m.receiver_role : m.sender_role);
+                            const roleStyle = ROLE_STYLE[cr] || { color: T.textMuted, bg: T.pageBg };
+                            const hasUnread = m.thread_unread === true || m.thread_unread === 1
+                                || (m.thread_unread == null && !m.is_read);
+                            const listDate = m.last_activity_at || m.created_at;
 
                             return (
                                 <div key={i}
@@ -198,7 +182,7 @@ export default function AdminMemos() {
                                         borderRadius: T.radius,
                                         cursor: 'pointer',
                                         transition: 'all 0.15s',
-                                        borderLeft: !m.is_read && activeTab === 'inbox'
+                                        borderLeft: hasUnread
                                             ? `3px solid ${T.accent}`
                                             : `3px solid transparent`,
                                     }}
@@ -223,28 +207,24 @@ export default function AdminMemos() {
                                                 color: roleStyle.color,
                                                 background: roleStyle.bg,
                                             }}>
-                                                {activeTab === 'inbox'
-                                                    ? m.sender_role : m.receiver_role}
+                                                {cr}
                                             </span>
                                             <span style={{ fontSize: 12,
                                                            fontWeight: 500,
                                                            color: T.textPri }}>
-                                                {activeTab === 'inbox'
-                                                    ? m.sender_name
-                                                    : m.receiver_name}
+                                                {m.counterpart_name || (m.sender_id === user?.user_id ? m.receiver_name : m.sender_name)}
                                             </span>
                                         </div>
                                         <span style={{ fontSize: 10,
                                                        color: T.textMuted,
                                                        whiteSpace: 'nowrap' }}>
-                                            {new Date(m.created_at)
+                                            {new Date(listDate)
                                                 .toLocaleDateString()}
                                         </span>
                                     </div>
                                     <div style={{
                                         fontSize: 12,
-                                        fontWeight: !m.is_read && activeTab === 'inbox'
-                                            ? 600 : 400,
+                                        fontWeight: hasUnread ? 600 : 400,
                                         color: T.textPri,
                                         marginBottom: 2,
                                         whiteSpace: 'nowrap',
@@ -253,7 +233,7 @@ export default function AdminMemos() {
                                     }}>
                                         {m.subject}
                                     </div>
-                                    {!m.is_read && activeTab === 'inbox' && (
+                                    {hasUnread && (
                                         <span style={{
                                             display: 'inline-block',
                                             width: 6, height: 6,
@@ -328,7 +308,7 @@ export default function AdminMemos() {
                                 role={thread.memo.sender_role}
                                 body={thread.memo.body}
                                 time={thread.memo.created_at}
-                                isOwn={false}
+                                isOwn={thread.memo.sender_id === user?.user_id}
                             />
                             {/* replies */}
                             {thread.replies?.map((r, i) => (
@@ -337,7 +317,7 @@ export default function AdminMemos() {
                                     role={r.sender_role}
                                     body={r.body}
                                     time={r.created_at}
-                                    isOwn={r.sender_role === 'admin'}
+                                    isOwn={r.sender_id === user?.user_id}
                                 />
                             ))}
                         </div>
@@ -379,6 +359,17 @@ export default function AdminMemos() {
             {composeModal && (
                 <Modal title="New Memo"
                        onClose={() => setComposeModal(false)}>
+                    {user?.role === 'driver' && recipients.length === 0 && (
+                        <p style={{
+                            margin: '0 0 12px',
+                            fontSize: 12,
+                            color: T.textMuted,
+                            lineHeight: 1.5,
+                        }}>
+                            No managers are available yet. Memos to managers use warehouses from your
+                            active shipment — start or accept a shipment, then try again.
+                        </p>
+                    )}
                     <FormSelect
                         label="To" required
                         value={newMemo.receiver_id}

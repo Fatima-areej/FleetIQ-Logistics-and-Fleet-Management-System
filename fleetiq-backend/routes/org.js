@@ -82,13 +82,16 @@ router.post('/users', auth, adminOnly, async (req, res) => {
         return res.status(400).json({ error: 'Can only create manager or driver accounts.' });
     }
 
+    const emailNorm = String(email || '').trim().toLowerCase();
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // check email not taken
+        // check email not taken (case-insensitive)
         const existing = await client.query(
-            `SELECT user_id FROM users WHERE email = $1`, [email]
+            `SELECT user_id FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))`,
+            [emailNorm]
         );
         if (existing.rows.length > 0) {
             await client.query('ROLLBACK');
@@ -102,7 +105,7 @@ router.post('/users', auth, adminOnly, async (req, res) => {
             `INSERT INTO users (org_id, name, email, password_hash, role)
              VALUES ($1, $2, $3, $4, $5)
              RETURNING *`,
-            [req.user.org_id, name, email, password_hash, role]
+            [req.user.org_id, name, emailNorm, password_hash, role]
         );
         const newUser = userResult.rows[0];
 

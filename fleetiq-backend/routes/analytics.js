@@ -10,6 +10,123 @@ const router  = express.Router();
 const pool    = require('../db');
 const auth    = require('../middleware/auth');
 
+const managerOnlyAnalytics = (req, res, next) => {
+    if (req.user.role !== 'manager') {
+        return res.status(403).json({ error: 'Manager access required.' });
+    }
+    next();
+};
+
+// GET /api/analytics/manager-dashboard — stats scoped to warehouses assigned to this manager
+router.get('/manager-dashboard', auth, managerOnlyAnalytics, async (req, res) => {
+    const uid = req.user.user_id;
+    const orgId = req.user.org_id;
+    try {
+        const [
+            warehousesRes,
+            totalsRes,
+            statusRes,
+            delayedRes,
+            maintenanceRes,
+            priorityRes,
+        ] = await Promise.all([
+            pool.query(
+                `SELECT wtv.*
+                 FROM warehouse_throughput_view wtv
+                 WHERE wtv.org_id = $1
+                   AND wtv.warehouse_id IN (
+                       SELECT warehouse_id
+                       FROM manager_warehouse_assignments
+                       WHERE manager_id = $2 AND is_active = TRUE
+                   )
+                 ORDER BY wtv.load_percentage DESC NULLS LAST`,
+                [orgId, uid]
+            ),
+            pool.query(
+                `WITH my_wh AS (
+                    SELECT warehouse_id
+                    FROM manager_warehouse_assignments
+                    WHERE manager_id = $1 AND is_active = TRUE
+                 )
+                 SELECT
+                    (SELECT COUNT(*)::INT FROM my_wh) AS warehouse_count,
+                    (SELECT COUNT(*)::INT FROM shipments s
+                     WHERE s.org_id = $2
+                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
+                       AND s.status NOT IN ('delivered','cancelled')) AS active_shipments,
+                    (SELECT COUNT(*)::INT FROM shipments s
+                     WHERE s.org_id = $2
+                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
+                       AND s.estimated_delivery < NOW()
+                       AND s.status NOT IN ('delivered','cancelled')) AS delayed_shipments,
+                    (SELECT COUNT(*)::INT FROM shipments s
+                     WHERE s.org_id = $2
+                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
+                       AND DATE(s.created_at) = CURRENT_DATE) AS shipments_today`,
+                [uid, orgId]
+            ),
+            pool.query(
+                `SELECT s.status, COUNT(*)::INT AS count
+                 FROM shipments s
+                 WHERE s.org_id = $2
+                   AND s.origin_warehouse_id IN (
+                       SELECT warehouse_id
+                       FROM manager_warehouse_assignments
+                       WHERE manager_id = $1 AND is_active = TRUE
+                   )
+                 GROUP BY s.status
+                 ORDER BY count DESC`,
+                [uid, orgId]
+            ),
+            pool.query(
+                `SELECT dsv.*
+                 FROM delayed_shipments_view dsv
+                 WHERE dsv.org_id = $2
+                   AND dsv.origin_warehouse_id IN (
+                       SELECT warehouse_id
+                       FROM manager_warehouse_assignments
+                       WHERE manager_id = $1 AND is_active = TRUE
+                   )
+                 ORDER BY dsv.estimated_delivery ASC
+                 LIMIT 8`,
+                [uid, orgId]
+            ),
+            pool.query(
+                `SELECT COUNT(*)::INT AS open_count
+                 FROM maintenance_requests
+                 WHERE assigned_manager_id = $1
+                   AND status IN ('assigned','in_progress')`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT s.priority, COUNT(*)::INT AS count
+                 FROM shipments s
+                 WHERE s.org_id = $2
+                   AND s.status NOT IN ('delivered','cancelled')
+                   AND s.origin_warehouse_id IN (
+                       SELECT warehouse_id
+                       FROM manager_warehouse_assignments
+                       WHERE manager_id = $1 AND is_active = TRUE
+                   )
+                 GROUP BY s.priority`,
+                [uid, orgId]
+            ),
+        ]);
+
+        res.json({
+            warehouses: warehousesRes.rows,
+            totals: totalsRes.rows[0] || {},
+            statusBreakdown: statusRes.rows,
+            recentDelayed: delayedRes.rows,
+            maintenanceOpen: maintenanceRes.rows[0]?.open_count ?? 0,
+            activeByPriority: priorityRes.rows,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch manager dashboard.' });
+    }
+});
+
 // GET /api/analytics/dashboard — main dashboard stats
 router.get('/dashboard', auth, async (req, res) => {
     const org_id = req.user.org_id;

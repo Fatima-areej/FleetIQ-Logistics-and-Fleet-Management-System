@@ -6,7 +6,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 
 // admin pages
 import AdminDashboard     from './pages/admin/AdminDashboard';
-import AdminShipments     from './pages/admin/AdminShipments';
+import AdminShipmentsView from './pages/admin/AdminShipmentsView';
 import AdminFleet         from './pages/admin/AdminFleet';
 import AdminDrivers       from './pages/admin/AdminDrivers';
 import AdminWarehouses    from './pages/admin/AdminWarehouses';
@@ -17,15 +17,23 @@ import AdminMemos         from './pages/admin/AdminMemos';
 import AdminNotifications from './pages/admin/AdminNotifications';
 import AdminSettings      from './pages/admin/AdminSettings';
 
-// manager + driver (placeholders for now)
-import ManagerDashboard from './pages/ManagerDashboard';
-import DriverDashboard  from './pages/DriverDashboard';
+// manager pages
+import ManagerLayout      from './pages/manager/ManagerLayout';
+import ManagerDashboard   from './pages/manager/ManagerDashboard';
+import ManagerShipments   from './pages/manager/ManagerShipments';
+import ManagerWarehouses  from './pages/manager/ManagerWarehouses';
+import ManagerRequests    from './pages/manager/ManagerRequests';
+
+// driver (existing)
+import DriverLayout     from './pages/driver/DriverLayout';
+import DriverShipments  from './pages/driver/DriverShipments';
+import DriverVehicles   from './pages/driver/DriverVehicles';
 
 function RoleRedirect() {
     const { user } = useAuth();
     if (!user) return <Navigate to="/login" replace />;
     if (user.role === 'admin')   return <Navigate to="/admin"   replace />;
-    if (user.role === 'manager') return <Navigate to="/manager" replace />;
+    if (user.role === 'manager') return <Navigate to="/manager/dashboard" replace />;
     if (user.role === 'driver')  return <Navigate to="/driver"  replace />;
     return <Navigate to="/login" replace />;
 }
@@ -40,6 +48,26 @@ function AdminWrapper({ page: Page }) {
     );
 }
 
+function ManagerWrapper({ page: Page }) {
+    return (
+        <ProtectedRoute allowedRoles={['manager']}>
+            <ManagerLayout>
+                <Page />
+            </ManagerLayout>
+        </ProtectedRoute>
+    );
+}
+
+function DriverWrapper({ page: Page }) {
+    return (
+        <ProtectedRoute allowedRoles={['driver']}>
+            <DriverLayout>
+                <Page />
+            </DriverLayout>
+        </ProtectedRoute>
+    );
+}
+
 export default function App() {
     return (
         <AuthProvider>
@@ -50,7 +78,7 @@ export default function App() {
 
                     {/* admin routes */}
                     <Route path="/admin"               element={<AdminWrapper page={AdminDashboard}     />} />
-                    <Route path="/admin/shipments"     element={<AdminWrapper page={AdminShipments}     />} />
+                    <Route path="/admin/shipments"     element={<AdminWrapper page={AdminShipmentsView} />} />
                     <Route path="/admin/fleet"         element={<AdminWrapper page={AdminFleet}         />} />
                     <Route path="/admin/drivers"       element={<AdminWrapper page={AdminDrivers}       />} />
                     <Route path="/admin/warehouses"    element={<AdminWrapper page={AdminWarehouses}    />} />
@@ -62,16 +90,16 @@ export default function App() {
                     <Route path="/admin/settings"      element={<AdminWrapper page={AdminSettings}      />} />
 
                     {/* manager + driver */}
-                    <Route path="/manager" element={
-                        <ProtectedRoute allowedRoles={['manager']}>
-                            <ManagerDashboard />
-                        </ProtectedRoute>
-                    } />
-                    <Route path="/driver" element={
-                        <ProtectedRoute allowedRoles={['driver']}>
-                            <DriverDashboard />
-                        </ProtectedRoute>
-                    } />
+                    <Route path="/manager"            element={<Navigate to="/manager/dashboard" replace />} />
+                    <Route path="/manager/dashboard"  element={<ManagerWrapper page={ManagerDashboard}  />} />
+                    <Route path="/manager/shipments"  element={<ManagerWrapper page={ManagerShipments}  />} />
+                    <Route path="/manager/warehouses" element={<ManagerWrapper page={ManagerWarehouses} />} />
+                    <Route path="/manager/requests"   element={<ManagerWrapper page={ManagerRequests}   />} />
+                    <Route path="/manager/memos"      element={<ManagerWrapper page={AdminMemos} />} />
+                    <Route path="/driver"           element={<Navigate to="/driver/shipments" replace />} />
+                    <Route path="/driver/shipments" element={<DriverWrapper page={DriverShipments} />} />
+                    <Route path="/driver/vehicles"  element={<DriverWrapper page={DriverVehicles} />} />
+                    <Route path="/driver/memos"     element={<DriverWrapper page={AdminMemos} />} />
 
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
