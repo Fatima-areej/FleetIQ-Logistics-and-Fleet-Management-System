@@ -19,18 +19,18 @@ DECLARE
     v_org_shipment   INT;
     v_org_vehicle    INT;
 BEGIN
-    -- check driver availability
+    -- lock driver row first to prevent concurrent double-assignment
     SELECT availability_status INTO v_driver_status
-    FROM drivers WHERE driver_id = p_driver_id;
+    FROM drivers WHERE driver_id = p_driver_id FOR UPDATE;
 
     IF v_driver_status != 'available' THEN
         RAISE EXCEPTION 'Driver % is not available. Current status: %',
             p_driver_id, v_driver_status;
     END IF;
 
-    -- check vehicle availability
+    -- lock vehicle row to prevent concurrent double-assignment
     SELECT status INTO v_vehicle_status
-    FROM vehicles WHERE vehicle_id = p_vehicle_id;
+    FROM vehicles WHERE vehicle_id = p_vehicle_id FOR UPDATE;
 
     IF v_vehicle_status != 'available' THEN
         RAISE EXCEPTION 'Vehicle % is not available. Current status: %',
@@ -145,13 +145,13 @@ BEGIN
     FROM shipments
     WHERE driver_id = p_driver_id;
 
-    IF v_total = 0 THEN
+    IF v_total + v_cancelled = 0 THEN
         v_new_rating := 5.00;
     ELSE
-        -- on-time = full score, delayed = partial, cancelled = penalty
+        -- denominator includes cancellations so they dilute the rating
         v_new_rating := ROUND(
-            ((v_on_time * 5.0) + (v_delayed * 2.5) + (v_cancelled * 0.0))
-            / NULLIF(v_total, 0),
+            ((v_on_time * 5.0) + (v_delayed * 2.5))
+            / NULLIF(v_total + v_cancelled, 0),
         2);
     END IF;
 
@@ -179,11 +179,11 @@ DECLARE
     v_capacity INT;
     v_load     INT;
 BEGIN
-    -- check warehouse capacity
+    -- lock warehouse row to prevent concurrent over-capacity transfers
     SELECT capacity_units, current_load
     INTO v_capacity, v_load
     FROM warehouses
-    WHERE warehouse_id = p_warehouse_id;
+    WHERE warehouse_id = p_warehouse_id FOR UPDATE;
 
     IF v_load >= v_capacity THEN
         RAISE EXCEPTION 'Warehouse % is at full capacity (% / %).',
@@ -214,38 +214,43 @@ END;
 $$;
 
 
---			Procedure 5
---			Find closest warehouse to given location
+--			Function 5
+--			Find closest warehouse to given location — returns a row, not just a notice
 
+DROP PROCEDURE IF EXISTS get_nearest_warehouse(NUMERIC, NUMERIC, INT);
 
-CREATE OR REPLACE PROCEDURE get_nearest_warehouse(
-    p_lat  NUMERIC,
-    p_lng  NUMERIC,
+CREATE OR REPLACE FUNCTION get_nearest_warehouse(
+    p_lat    NUMERIC,
+    p_lng    NUMERIC,
     p_org_id INT
 )
-LANGUAGE plpgsql AS $$
-DECLARE
-    v_name     TEXT;
-    v_city     TEXT;
-    v_distance NUMERIC;
-BEGIN
+RETURNS TABLE (
+    warehouse_id   INT,
+    name           TEXT,
+    city           TEXT,
+    address        TEXT,
+    capacity_units INT,
+    current_load   INT,
+    distance_km    NUMERIC
+)
+LANGUAGE sql STABLE AS $$
     SELECT
-        name,
-        city,
+        w.warehouse_id,
+        w.name,
+        w.city,
+        w.address,
+        w.capacity_units,
+        w.current_load,
         ROUND(
             (ST_Distance(
-                location,
+                w.location,
                 ST_MakePoint(p_lng, p_lat)::geography
             ) / 1000)::NUMERIC,
-        2)
-    INTO v_name, v_city, v_distance
-    FROM warehouses
-    WHERE org_id = p_org_id
-      AND location IS NOT NULL
-    ORDER BY location <-> ST_MakePoint(p_lng, p_lat)::geography
+        2) AS distance_km
+    FROM warehouses w
+    WHERE w.org_id = p_org_id
+      AND w.location IS NOT NULL
+    ORDER BY w.location <-> ST_MakePoint(p_lng, p_lat)::geography
     LIMIT 1;
-
-    RAISE NOTICE 'Nearest warehouse: % in % — % km away.', v_name, v_city, v_distance;
-END;
 $$;
 

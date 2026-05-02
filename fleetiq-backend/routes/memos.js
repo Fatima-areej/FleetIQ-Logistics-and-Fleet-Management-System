@@ -135,19 +135,22 @@ router.get('/recipients', auth, async (req, res) => {
     }
 });
 
+// Walk the parent chain in one recursive CTE instead of N round-trips.
 async function resolveThreadRootId(client, memoId) {
-    let id = parseInt(memoId, 10);
-    for (let i = 0; i < 64; i++) {
-        const row = await client.query(
-            `SELECT memo_id, parent_memo_id FROM memos WHERE memo_id = $1`,
-            [id]
-        );
-        if (row.rows.length === 0) return null;
-        const p = row.rows[0].parent_memo_id;
-        if (!p) return row.rows[0].memo_id;
-        id = p;
-    }
-    return null;
+    const result = await client.query(
+        `WITH RECURSIVE chain AS (
+             SELECT memo_id, parent_memo_id
+             FROM   memos
+             WHERE  memo_id = $1
+             UNION ALL
+             SELECT m.memo_id, m.parent_memo_id
+             FROM   memos m
+             JOIN   chain  c ON m.memo_id = c.parent_memo_id
+         )
+         SELECT memo_id FROM chain WHERE parent_memo_id IS NULL LIMIT 1`,
+        [parseInt(memoId, 10)]
+    );
+    return result.rows[0]?.memo_id ?? null;
 }
 
 // ── GET /api/memos/:id — single memo with thread (always anchored at root)

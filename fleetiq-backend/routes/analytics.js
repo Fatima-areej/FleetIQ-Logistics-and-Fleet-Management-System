@@ -18,79 +18,67 @@ const managerOnlyAnalytics = (req, res, next) => {
 };
 
 // GET /api/analytics/manager-dashboard — stats scoped to warehouses assigned to this manager
+//
+// Reduced from 6 parallel queries to 2:
+//  - One CTE query computes all scalar totals + aggregated arrays in a single pass
+//    over the manager's shipments, eliminating the repeated subquery.
+//  - One separate query for the warehouse throughput view (different row shape).
+//  - One tiny query for open maintenance count (different table, no shipment join).
 router.get('/manager-dashboard', auth, managerOnlyAnalytics, async (req, res) => {
-    const uid = req.user.user_id;
+    const uid   = req.user.user_id;
     const orgId = req.user.org_id;
     try {
-        const [
-            warehousesRes,
-            totalsRes,
-            statusRes,
-            delayedRes,
-            maintenanceRes,
-            priorityRes,
-        ] = await Promise.all([
+        const [warehousesRes, dashboardRes, maintenanceRes] = await Promise.all([
             pool.query(
                 `SELECT wtv.*
                  FROM warehouse_throughput_view wtv
                  WHERE wtv.org_id = $1
                    AND wtv.warehouse_id IN (
-                       SELECT warehouse_id
-                       FROM manager_warehouse_assignments
+                       SELECT warehouse_id FROM manager_warehouse_assignments
                        WHERE manager_id = $2 AND is_active = TRUE
                    )
                  ORDER BY wtv.load_percentage DESC NULLS LAST`,
                 [orgId, uid]
             ),
+
+            // Single CTE query — my_wh is defined once and reused by every sub-select
             pool.query(
                 `WITH my_wh AS (
-                    SELECT warehouse_id
-                    FROM manager_warehouse_assignments
-                    WHERE manager_id = $1 AND is_active = TRUE
+                     SELECT warehouse_id
+                     FROM   manager_warehouse_assignments
+                     WHERE  manager_id = $1 AND is_active = TRUE
+                 ),
+                 scoped AS (
+                     SELECT s.*
+                     FROM   shipments s
+                     WHERE  s.org_id = $2
+                       AND  s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
                  )
                  SELECT
-                    (SELECT COUNT(*)::INT FROM my_wh) AS warehouse_count,
-                    (SELECT COUNT(*)::INT FROM shipments s
-                     WHERE s.org_id = $2
-                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
-                       AND s.status NOT IN ('delivered','cancelled')) AS active_shipments,
-                    (SELECT COUNT(*)::INT FROM shipments s
-                     WHERE s.org_id = $2
-                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
-                       AND s.estimated_delivery < NOW()
-                       AND s.status NOT IN ('delivered','cancelled')) AS delayed_shipments,
-                    (SELECT COUNT(*)::INT FROM shipments s
-                     WHERE s.org_id = $2
-                       AND s.origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
-                       AND DATE(s.created_at) = CURRENT_DATE) AS shipments_today`,
+                     (SELECT COUNT(*)::INT FROM my_wh)                                      AS warehouse_count,
+                     (SELECT COUNT(*)::INT FROM scoped
+                      WHERE  status NOT IN ('delivered','cancelled'))                        AS active_shipments,
+                     (SELECT COUNT(*)::INT FROM scoped
+                      WHERE  estimated_delivery < NOW()
+                        AND  status NOT IN ('delivered','cancelled'))                        AS delayed_shipments,
+                     (SELECT COUNT(*)::INT FROM scoped
+                      WHERE  DATE(created_at) = CURRENT_DATE)                              AS shipments_today,
+                     (SELECT COALESCE(json_agg(t ORDER BY t.count DESC), '[]')
+                      FROM  (SELECT status, COUNT(*)::INT AS count
+                             FROM   scoped GROUP BY status) t)                             AS status_breakdown,
+                     (SELECT COALESCE(json_agg(d ORDER BY d.estimated_delivery ASC), '[]')
+                      FROM  (SELECT * FROM delayed_shipments_view
+                             WHERE  org_id = $2
+                               AND  origin_warehouse_id IN (SELECT warehouse_id FROM my_wh)
+                             LIMIT 8) d)                                                   AS recent_delayed,
+                     (SELECT COALESCE(json_agg(p), '[]')
+                      FROM  (SELECT priority, COUNT(*)::INT AS count
+                             FROM   scoped
+                             WHERE  status NOT IN ('delivered','cancelled')
+                             GROUP BY priority) p)                                         AS active_by_priority`,
                 [uid, orgId]
             ),
-            pool.query(
-                `SELECT s.status, COUNT(*)::INT AS count
-                 FROM shipments s
-                 WHERE s.org_id = $2
-                   AND s.origin_warehouse_id IN (
-                       SELECT warehouse_id
-                       FROM manager_warehouse_assignments
-                       WHERE manager_id = $1 AND is_active = TRUE
-                   )
-                 GROUP BY s.status
-                 ORDER BY count DESC`,
-                [uid, orgId]
-            ),
-            pool.query(
-                `SELECT dsv.*
-                 FROM delayed_shipments_view dsv
-                 WHERE dsv.org_id = $2
-                   AND dsv.origin_warehouse_id IN (
-                       SELECT warehouse_id
-                       FROM manager_warehouse_assignments
-                       WHERE manager_id = $1 AND is_active = TRUE
-                   )
-                 ORDER BY dsv.estimated_delivery ASC
-                 LIMIT 8`,
-                [uid, orgId]
-            ),
+
             pool.query(
                 `SELECT COUNT(*)::INT AS open_count
                  FROM maintenance_requests
@@ -98,28 +86,21 @@ router.get('/manager-dashboard', auth, managerOnlyAnalytics, async (req, res) =>
                    AND status IN ('assigned','in_progress')`,
                 [uid]
             ),
-            pool.query(
-                `SELECT s.priority, COUNT(*)::INT AS count
-                 FROM shipments s
-                 WHERE s.org_id = $2
-                   AND s.status NOT IN ('delivered','cancelled')
-                   AND s.origin_warehouse_id IN (
-                       SELECT warehouse_id
-                       FROM manager_warehouse_assignments
-                       WHERE manager_id = $1 AND is_active = TRUE
-                   )
-                 GROUP BY s.priority`,
-                [uid, orgId]
-            ),
         ]);
 
+        const d = dashboardRes.rows[0];
         res.json({
-            warehouses: warehousesRes.rows,
-            totals: totalsRes.rows[0] || {},
-            statusBreakdown: statusRes.rows,
-            recentDelayed: delayedRes.rows,
-            maintenanceOpen: maintenanceRes.rows[0]?.open_count ?? 0,
-            activeByPriority: priorityRes.rows,
+            warehouses:      warehousesRes.rows,
+            totals: {
+                warehouse_count:   d.warehouse_count,
+                active_shipments:  d.active_shipments,
+                delayed_shipments: d.delayed_shipments,
+                shipments_today:   d.shipments_today,
+            },
+            statusBreakdown:  d.status_breakdown,
+            recentDelayed:    d.recent_delayed,
+            maintenanceOpen:  maintenanceRes.rows[0]?.open_count ?? 0,
+            activeByPriority: d.active_by_priority,
         });
     } catch (err) {
         console.error(err);

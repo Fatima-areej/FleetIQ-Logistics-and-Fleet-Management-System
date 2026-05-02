@@ -14,11 +14,13 @@ BEGIN
             shipment_id,
             status,
             notes,
+            updated_by,
             changed_at
         ) VALUES (
             NEW.shipment_id,
             NEW.status,
             'Status changed from ' || OLD.status || ' to ' || NEW.status,
+            NULLIF(current_setting('app.current_user_id', TRUE), '')::INT,
             NOW()
         );
     END IF;

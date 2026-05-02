@@ -6,7 +6,9 @@
 --			All shipments that are currently active.
 
 
-CREATE OR REPLACE VIEW active_shipments_view AS
+DROP VIEW IF EXISTS active_shipments_view CASCADE;
+
+CREATE VIEW active_shipments_view AS
 SELECT
     s.shipment_id,
     s.org_id,
@@ -16,6 +18,8 @@ SELECT
     s.weight_kg,
     s.created_at,
     s.estimated_delivery,
+    s.delivery_mode,
+    s.transfer_warehouse_id,
     u.name          AS driver_name,
     u.user_id       AS driver_user_id,
     d.driver_id,
@@ -24,12 +28,15 @@ SELECT
     v.vehicle_type,
     w.name          AS origin_warehouse,
     w.city          AS origin_city,
-    w.warehouse_id  AS origin_warehouse_id
+    w.warehouse_id  AS origin_warehouse_id,
+    tw.name         AS transfer_warehouse,
+    tw.city         AS transfer_city
 FROM shipments s
-LEFT JOIN drivers   d ON d.driver_id    = s.driver_id
-LEFT JOIN users     u ON u.user_id      = d.user_id
-LEFT JOIN vehicles  v ON v.vehicle_id   = s.vehicle_id
-LEFT JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
+LEFT JOIN drivers    d  ON d.driver_id     = s.driver_id
+LEFT JOIN users      u  ON u.user_id       = d.user_id
+LEFT JOIN vehicles   v  ON v.vehicle_id    = s.vehicle_id
+LEFT JOIN warehouses w  ON w.warehouse_id  = s.origin_warehouse_id
+LEFT JOIN warehouses tw ON tw.warehouse_id = s.transfer_warehouse_id
 WHERE s.status NOT IN ('delivered', 'cancelled');
 
 
@@ -80,17 +87,29 @@ SELECT
     v.plate_number,
     v.vehicle_type,
     v.capacity_kg,
-    v.status                                            AS current_status,
-    COUNT(DISTINCT s.shipment_id)
-        FILTER (WHERE s.status = 'delivered')           AS total_trips,
-    COALESCE(SUM(m.cost), 0)                            AS total_maintenance_cost,
-    COUNT(DISTINCT m.maintenance_id)                    AS maintenance_count,
-    MAX(m.performed_at)                                 AS last_maintenance_date
+    v.status                             AS current_status,
+    COALESCE(s_agg.total_trips,        0) AS total_trips,
+    COALESCE(vm_agg.total_cost,        0) AS total_maintenance_cost,
+    COALESCE(mr_agg.maintenance_count, 0) AS maintenance_count,
+    mr_agg.last_maintenance_date
 FROM vehicles v
-LEFT JOIN shipments         s ON s.vehicle_id    = v.vehicle_id
-LEFT JOIN vehicle_maintenance m ON m.vehicle_id  = v.vehicle_id
-GROUP BY v.vehicle_id, v.org_id, v.plate_number,
-         v.vehicle_type, v.capacity_kg, v.status;
+LEFT JOIN (
+    SELECT vehicle_id, COUNT(DISTINCT shipment_id) AS total_trips
+    FROM shipments WHERE status = 'delivered'
+    GROUP BY vehicle_id
+) s_agg  ON s_agg.vehicle_id  = v.vehicle_id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(cost) AS total_cost
+    FROM vehicle_maintenance
+    GROUP BY vehicle_id
+) vm_agg ON vm_agg.vehicle_id = v.vehicle_id
+LEFT JOIN (
+    SELECT vehicle_id,
+           COUNT(*)    AS maintenance_count,
+           MAX(created_at) AS last_maintenance_date
+    FROM maintenance_requests
+    GROUP BY vehicle_id
+) mr_agg ON mr_agg.vehicle_id = v.vehicle_id;
 
 
 --			View 4
@@ -164,7 +183,6 @@ JOIN shipments s ON s.driver_id = d.driver_id
 JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
 JOIN manager_warehouse_assignments mwa
     ON mwa.warehouse_id = w.warehouse_id AND mwa.is_active = TRUE
-JOIN users u_mgr ON u_mgr.user_id = mwa.manager_id
-WHERE s.status NOT IN ('delivered', 'cancelled');
+JOIN users u_mgr ON u_mgr.user_id = mwa.manager_id;
 
 

@@ -1,18 +1,14 @@
-/*
-
-handles all shipment related API endpoints under /api/shipments.
-Includes routes for:
-- getting shipments (with different filters)
-- creating new shipments
-- assigning drivers and vehicles
-- updating status, cancelling, transferring to warehouse, etc.
-
-*/
-
 const express = require('express');
-const router  = express.Router();                           //explained in auth.js
+const router  = express.Router();
 const pool    = require('../db');
+const { withRLSClient, setRLSContext } = pool;
 const auth    = require('../middleware/auth');
+
+// Valid shipment_status_enum values — used to validate manual status updates
+const VALID_STATUSES = new Set([
+    'created', 'assigned', 'in_transit',
+    'at_warehouse', 'out_for_delivery', 'delivered', 'cancelled',
+]);
 
 async function managerCanAccessWarehouse(managerUserId, warehouseId) {
     const result = await pool.query(
@@ -40,44 +36,24 @@ async function managerCanAccessShipment(managerUserId, shipmentId, orgId) {
     return result.rows.length > 0;
 }
 
-// GET /api/shipments — get all shipments for the org
-
-//fetch shipments, but behaviour depends on role:
-// if driver, only get their shipments; if admin/manager, get all shipments in org.
-
+// GET /api/shipments — active shipments, role-scoped
 router.get('/', auth, async (req, res) => {
     try {
-
-        // set the current user id in the session for use in triggers/functions
-        await pool.query(`SET app.current_user_id = '${req.user.user_id}'`);
-
-        let query;
-        let params;
+        let query, params;
 
         if (req.user.role === 'driver') {
+            // Use the view — now includes delivery_mode and transfer_warehouse columns
             query = `
-                SELECT s.shipment_id, s.org_id, s.status, s.priority,
-                       s.destination_address, s.weight_kg, s.created_at, s.estimated_delivery,
-                       s.delivery_mode, s.transfer_warehouse_id,
-                       u.name AS driver_name, d.driver_id,
-                       v.plate_number AS vehicle_plate, v.vehicle_type,
-                       w.name AS origin_warehouse, w.city AS origin_city,
-                       w.warehouse_id AS origin_warehouse_id,
-                       tw.name AS transfer_warehouse,
-                       tw.city AS transfer_city
-                FROM shipments s
-                LEFT JOIN drivers   d  ON d.driver_id = s.driver_id
-                LEFT JOIN users     u  ON u.user_id   = d.user_id
-                LEFT JOIN vehicles  v  ON v.vehicle_id = s.vehicle_id
-                LEFT JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
-                LEFT JOIN warehouses tw ON tw.warehouse_id = s.transfer_warehouse_id
-                WHERE s.driver_id = $1
-                  AND s.status NOT IN ('delivered', 'cancelled')
-                ORDER BY s.created_at DESC`;
-            params = [req.user.driver_id];
+                SELECT *
+                FROM active_shipments_view
+                WHERE org_id = $1
+                  AND driver_id = $2
+                ORDER BY created_at DESC`;
+            params = [req.user.org_id, req.user.driver_id];
         } else if (req.user.role === 'manager') {
             query = `
-                SELECT * FROM active_shipments_view
+                SELECT *
+                FROM active_shipments_view
                 WHERE org_id = $1
                   AND origin_warehouse_id IN (
                       SELECT warehouse_id
@@ -88,14 +64,18 @@ router.get('/', auth, async (req, res) => {
             params = [req.user.org_id, req.user.user_id];
         } else {
             query = `
-                SELECT * FROM active_shipments_view
+                SELECT *
+                FROM active_shipments_view
                 WHERE org_id = $1
                 ORDER BY created_at DESC`;
             params = [req.user.org_id];
         }
 
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        const rows = await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(query, params).then(r => r.rows)
+        );
+        res.json(rows);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch shipments.' });
@@ -103,13 +83,9 @@ router.get('/', auth, async (req, res) => {
 });
 
 // GET /api/shipments/all — includes delivered and cancelled
-
 router.get('/all', auth, async (req, res) => {
     try {
-        let query;
-        let params;
-
-        // left join so that even if no driver assigned yet, the shipment will still show 
+        let query, params;
 
         if (req.user.role === 'driver') {
             query = `
@@ -154,20 +130,21 @@ router.get('/all', auth, async (req, res) => {
             params = [req.user.org_id];
         }
 
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        const rows = await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(query, params).then(r => r.rows)
+        );
+        res.json(rows);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch shipments.' });
     }
 });
 
-// GET /api/shipments/delayed — delayed shipments for org
-
+// GET /api/shipments/delayed
 router.get('/delayed', auth, async (req, res) => {
     try {
-        let query;
-        let params;
+        let query, params;
 
         if (req.user.role === 'manager') {
             query = `
@@ -185,69 +162,78 @@ router.get('/delayed', auth, async (req, res) => {
             params = [req.user.org_id];
         }
 
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        const rows = await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(query, params).then(r => r.rows)
+        );
+        res.json(rows);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch delayed shipments.' });
     }
 });
 
-// GET /api/shipments/:id — get single shipment with full history
-
+// GET /api/shipments/:id — single shipment with history, items, and stops
+// Runs the four sub-queries in parallel inside one RLS-context transaction.
 router.get('/:id', auth, async (req, res) => {
     try {
-        const shipment = await pool.query(
-            `SELECT s.*, u.name AS driver_name, v.plate_number,
-                    v.vehicle_type, w.name AS origin_warehouse,
-                    w.city AS origin_city,
-                    tw.name AS transfer_warehouse,
-                    tw.city AS transfer_city
-             FROM shipments s
-             LEFT JOIN drivers d    ON d.driver_id    = s.driver_id
-             LEFT JOIN users u      ON u.user_id      = d.user_id
-             LEFT JOIN vehicles v   ON v.vehicle_id   = s.vehicle_id
-             LEFT JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
-             LEFT JOIN warehouses tw ON tw.warehouse_id = s.transfer_warehouse_id
-             WHERE s.shipment_id = $1 AND s.org_id = $2`,
-            [req.params.id, req.user.org_id]
+        const data = await withRLSClient(
+            req.user.user_id, req.user.role,
+            async client => {
+                const [shipmentRes, historyRes, itemsRes, stopsRes] = await Promise.all([
+                    client.query(
+                        `SELECT s.*, u.name AS driver_name, v.plate_number,
+                                v.vehicle_type, w.name AS origin_warehouse,
+                                w.city AS origin_city,
+                                tw.name AS transfer_warehouse,
+                                tw.city AS transfer_city
+                         FROM shipments s
+                         LEFT JOIN drivers d    ON d.driver_id    = s.driver_id
+                         LEFT JOIN users u      ON u.user_id      = d.user_id
+                         LEFT JOIN vehicles v   ON v.vehicle_id   = s.vehicle_id
+                         LEFT JOIN warehouses w  ON w.warehouse_id  = s.origin_warehouse_id
+                         LEFT JOIN warehouses tw ON tw.warehouse_id = s.transfer_warehouse_id
+                         WHERE s.shipment_id = $1 AND s.org_id = $2`,
+                        [req.params.id, req.user.org_id]
+                    ),
+                    client.query(
+                        `SELECT ssh.*, u.name AS updated_by_name
+                         FROM shipment_status_history ssh
+                         LEFT JOIN users u ON u.user_id = ssh.updated_by
+                         WHERE ssh.shipment_id = $1
+                         ORDER BY ssh.changed_at ASC`,
+                        [req.params.id]
+                    ),
+                    client.query(
+                        `SELECT * FROM shipment_items WHERE shipment_id = $1`,
+                        [req.params.id]
+                    ),
+                    client.query(
+                        `SELECT ws.*, w.name AS warehouse_name, w.city
+                         FROM warehouse_shipments ws
+                         JOIN warehouses w ON w.warehouse_id = ws.warehouse_id
+                         WHERE ws.shipment_id = $1
+                         ORDER BY ws.arrival_time ASC`,
+                        [req.params.id]
+                    ),
+                ]);
+                return {
+                    shipment: shipmentRes.rows,
+                    history:  historyRes.rows,
+                    items:    itemsRes.rows,
+                    stops:    stopsRes.rows,
+                };
+            }
         );
 
-        if (shipment.rows.length === 0) {
+        if (data.shipment.length === 0) {
             return res.status(404).json({ error: 'Shipment not found.' });
         }
-
-        // get status history
-        const history = await pool.query(
-            `SELECT ssh.*, u.name AS updated_by_name
-             FROM shipment_status_history ssh
-             LEFT JOIN users u ON u.user_id = ssh.updated_by
-             WHERE ssh.shipment_id = $1
-             ORDER BY ssh.changed_at ASC`,
-            [req.params.id]
-        );
-
-        // get items
-        const items = await pool.query(
-            `SELECT * FROM shipment_items WHERE shipment_id = $1`,
-            [req.params.id]
-        );
-
-        // get warehouse stops
-        const stops = await pool.query(
-            `SELECT ws.*, w.name AS warehouse_name, w.city
-             FROM warehouse_shipments ws
-             JOIN warehouses w ON w.warehouse_id = ws.warehouse_id
-             WHERE ws.shipment_id = $1
-             ORDER BY ws.arrival_time ASC`,
-            [req.params.id]
-        );
-
         res.json({
-            shipment:  shipment.rows[0],
-            history:   history.rows,
-            items:     items.rows,
-            stops:     stops.rows
+            shipment: data.shipment[0],
+            history:  data.history,
+            items:    data.items,
+            stops:    data.stops,
         });
     } catch (err) {
         console.error(err);
@@ -266,12 +252,15 @@ router.post('/', auth, async (req, res) => {
     if (req.user.role === 'driver') {
         return res.status(403).json({ error: 'Drivers cannot create shipments.' });
     }
+    if (!origin_warehouse_id) {
+        return res.status(400).json({ error: 'Origin warehouse is required.' });
+    }
+    if (!destination_address) {
+        return res.status(400).json({ error: 'Destination address is required.' });
+    }
 
     if (req.user.role === 'manager') {
-        const ok = await managerCanAccessWarehouse(
-            req.user.user_id,
-            origin_warehouse_id
-        );
+        const ok = await managerCanAccessWarehouse(req.user.user_id, origin_warehouse_id);
         if (!ok) {
             return res.status(403).json({
                 error: 'You are not assigned to the selected origin warehouse.'
@@ -279,60 +268,65 @@ router.post('/', auth, async (req, res) => {
         }
     }
 
-    // grab a dedicated client from the pool for transaction control
-    const client = await pool.connect();
+    // Convert empty strings to null so ST_MakePoint is skipped when not provided
+    const lng = destination_lng !== '' && destination_lng != null ? parseFloat(destination_lng) : null;
+    const lat = destination_lat !== '' && destination_lat != null ? parseFloat(destination_lat) : null;
 
+    const client = await pool.connect();
     try {
         await client.query('BEGIN');
+        await setRLSContext(client, req.user.user_id, req.user.role);
 
-        // insert the shipment
         const result = await client.query(
             `INSERT INTO shipments
                 (org_id, origin_warehouse_id, destination_address,
                  destination_location, weight_kg, priority, estimated_delivery)
              VALUES ($1, $2, $3,
-                 ST_MakePoint($4, $5)::geography,
+                 CASE WHEN $4::float8 IS NOT NULL AND $5::float8 IS NOT NULL
+                      THEN ST_MakePoint($4::float8, $5::float8)::geography
+                      ELSE NULL
+                 END,
                  $6, $7, $8)
              RETURNING *`,
             [req.user.org_id, origin_warehouse_id, destination_address,
-             destination_lng, destination_lat,
-             weight_kg, priority || 'normal', estimated_delivery]
+             lng, lat,
+             weight_kg !== '' && weight_kg != null ? parseFloat(weight_kg) : null,
+             priority || 'normal',
+             estimated_delivery || null]
         );
 
         const newShipment = result.rows[0];
 
-        // insert all items — if any fail, the whole thing rolls back
-        // TRANSACTION CONTROL: if any of these inserts fail
-        // the catch block will trigger and the transaction will roll back
-        // ensuring no partial data is saved. 
-        // This maintains data integrity; we won't have a shipment without its items or vice versa.
-
+        // Batch-insert all items in a single query using UNNEST — avoids N round-trips
         if (items && items.length > 0) {
-            for (const item of items) {
-                await client.query(
-                    `INSERT INTO shipment_items
-                        (shipment_id, item_name, quantity, weight, category)
-                     VALUES ($1, $2, $3, $4, $5)`,
-                    [newShipment.shipment_id, item.item_name,
-                     item.quantity, item.weight, item.category]
-                );
-            }
+            await client.query(
+                `INSERT INTO shipment_items
+                    (shipment_id, item_name, quantity, weight, category)
+                 SELECT $1,
+                        UNNEST($2::TEXT[]),
+                        UNNEST($3::INT[]),
+                        UNNEST($4::NUMERIC[]),
+                        UNNEST($5::TEXT[])`,
+                [
+                    newShipment.shipment_id,
+                    items.map(i => i.item_name || null),
+                    items.map(i => i.quantity !== '' && i.quantity != null ? parseInt(i.quantity, 10) : null),
+                    items.map(i => i.weight   !== '' && i.weight   != null ? parseFloat(i.weight)    : null),
+                    items.map(i => i.category || null),
+                ]
+            );
         }
 
         await client.query('COMMIT');
-
         res.status(201).json({
             message:  'Shipment created successfully.',
-            shipment: newShipment
+            shipment: newShipment,
         });
-
     } catch (err) {
-        // if anything failed, undo everything — no partial data
         await client.query('ROLLBACK');
         console.error(err);
         res.status(500).json({ error: 'Failed to create shipment. All changes rolled back.' });
     } finally {
-        // always release client back to the pool, even if error occurred
         client.release();
     }
 });
@@ -345,9 +339,7 @@ router.post('/:id/assign', auth, async (req, res) => {
     }
     if (req.user.role === 'manager') {
         const ok = await managerCanAccessShipment(
-            req.user.user_id,
-            req.params.id,
-            req.user.org_id
+            req.user.user_id, req.params.id, req.user.org_id
         );
         if (!ok) {
             return res.status(403).json({
@@ -355,9 +347,11 @@ router.post('/:id/assign', auth, async (req, res) => {
             });
         }
     }
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
+        await setRLSContext(client, req.user.user_id, req.user.role);
 
         const shipRow = await client.query(
             `SELECT origin_warehouse_id
@@ -372,7 +366,6 @@ router.post('/:id/assign', auth, async (req, res) => {
         }
         const originWh = shipRow.rows[0].origin_warehouse_id;
 
-        // store routing mode (direct vs via_warehouse)
         const mode = delivery_mode === 'via_warehouse' ? 'via_warehouse' : 'direct';
         const transferWh = mode === 'via_warehouse' ? transfer_warehouse_id : null;
         if (mode === 'via_warehouse' && !transferWh) {
@@ -380,7 +373,6 @@ router.post('/:id/assign', auth, async (req, res) => {
             return res.status(400).json({ error: 'transfer_warehouse_id is required for via_warehouse.' });
         }
 
-        // org guard for transfer warehouse (before assign_shipment so we never partially assign)
         if (mode === 'via_warehouse') {
             const twInt = parseInt(transferWh, 10);
             if (Number.isNaN(twInt)) {
@@ -403,7 +395,6 @@ router.post('/:id/assign', auth, async (req, res) => {
             }
         }
 
-        // stored procedure to assign shipments
         await client.query(
             `CALL assign_shipment($1, $2, $3)`,
             [req.params.id, driver_id, vehicle_id]
@@ -420,11 +411,7 @@ router.post('/:id/assign', auth, async (req, res) => {
         await client.query('COMMIT');
         res.json({ message: 'Shipment assigned successfully.' });
     } catch (err) {
-        try {
-            await client.query('ROLLBACK');
-        } catch (_) {
-            /* ignore rollback errors */
-        }
+        try { await client.query('ROLLBACK'); } catch (_) {}
         console.error(err);
         res.status(500).json({ error: err.message });
     } finally {
@@ -432,18 +419,14 @@ router.post('/:id/assign', auth, async (req, res) => {
     }
 });
 
-// POST /api/shipments/:id/complete — mark as delivered
+// POST /api/shipments/:id/complete — mark as delivered (admin/manager only)
 router.post('/:id/complete', auth, async (req, res) => {
-
-    //stored procedure to complete delivery
     if (req.user.role === 'driver') {
         return res.status(403).json({ error: 'Drivers cannot complete deliveries here.' });
     }
     if (req.user.role === 'manager') {
         const ok = await managerCanAccessShipment(
-            req.user.user_id,
-            req.params.id,
-            req.user.org_id
+            req.user.user_id, req.params.id, req.user.org_id
         );
         if (!ok) {
             return res.status(403).json({
@@ -452,7 +435,10 @@ router.post('/:id/complete', auth, async (req, res) => {
         }
     }
     try {
-        await pool.query(`CALL complete_delivery($1)`, [req.params.id]);
+        await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(`CALL complete_delivery($1)`, [req.params.id])
+        );
         res.json({ message: 'Shipment marked as delivered.' });
     } catch (err) {
         console.error(err);
@@ -468,78 +454,88 @@ router.post('/:id/driver-progress', auth, async (req, res) => {
 
     const { next_status } = req.body;
     const allowedDirect = {
-        assigned: 'out_for_delivery',
+        assigned:        'out_for_delivery',
         out_for_delivery: 'delivered',
     };
     const allowedViaWarehouse = {
-        assigned: 'in_transit',
-        in_transit: 'at_warehouse',
-        at_warehouse: 'out_for_delivery',
+        assigned:        'in_transit',
+        in_transit:      'at_warehouse',
+        at_warehouse:    'out_for_delivery',
         out_for_delivery: 'delivered',
     };
 
     try {
-        const shipment = await pool.query(
-            `SELECT shipment_id, status, vehicle_id, delivery_mode, transfer_warehouse_id
-             FROM shipments
-             WHERE shipment_id = $1 AND driver_id = $2 AND org_id = $3`,
-            [req.params.id, req.user.driver_id, req.user.org_id]
-        );
-        if (shipment.rows.length === 0) {
-            return res.status(404).json({ error: 'Shipment not found.' });
-        }
+        const result = await withRLSClient(
+            req.user.user_id, req.user.role,
+            async client => {
+                const shipment = await client.query(
+                    `SELECT shipment_id, status, vehicle_id, delivery_mode, transfer_warehouse_id
+                     FROM shipments
+                     WHERE shipment_id = $1 AND driver_id = $2 AND org_id = $3`,
+                    [req.params.id, req.user.driver_id, req.user.org_id]
+                );
+                if (shipment.rows.length === 0) return { notFound: true };
 
-        const current = shipment.rows[0].status;
-        const mode = shipment.rows[0].delivery_mode || 'direct';
-        const flow = mode === 'via_warehouse' ? allowedViaWarehouse : allowedDirect;
-        const expectedNext = flow[current];
-        if (!expectedNext) {
-            return res.status(400).json({ error: `Cannot progress from status '${current}'.` });
-        }
-        if (next_status !== expectedNext) {
-            return res.status(400).json({ error: `Next status must be '${expectedNext}'.` });
-        }
-        if (!shipment.rows[0].vehicle_id) {
-            return res.status(400).json({ error: 'Shipment has no assigned vehicle.' });
-        }
+                const current = shipment.rows[0].status;
+                const mode    = shipment.rows[0].delivery_mode || 'direct';
+                const flow    = mode === 'via_warehouse' ? allowedViaWarehouse : allowedDirect;
+                const expectedNext = flow[current];
 
-        if (next_status === 'delivered') {
-            await pool.query(`CALL complete_delivery($1)`, [req.params.id]);
-            return res.json({ message: 'Shipment marked as delivered.' });
-        }
+                if (!expectedNext) return { badStatus: current };
+                if (next_status !== expectedNext) return { wrongNext: expectedNext };
+                if (!shipment.rows[0].vehicle_id) return { noVehicle: true };
 
-        if (next_status === 'at_warehouse') {
-            const tw = shipment.rows[0].transfer_warehouse_id;
-            if (!tw) {
-                return res.status(400).json({ error: 'No transfer warehouse set for this shipment.' });
+                if (next_status === 'delivered') {
+                    await client.query(`CALL complete_delivery($1)`, [req.params.id]);
+                    return { message: 'Shipment marked as delivered.' };
+                }
+
+                if (next_status === 'at_warehouse') {
+                    const tw = shipment.rows[0].transfer_warehouse_id;
+                    if (!tw) return { noTransferWh: true };
+                    await client.query(`CALL transfer_to_warehouse($1, $2)`, [req.params.id, tw]);
+                    return { message: 'Shipment reached warehouse.' };
+                }
+
+                await client.query(
+                    `UPDATE shipments SET status = $1
+                     WHERE shipment_id = $2 AND driver_id = $3 AND org_id = $4`,
+                    [next_status, req.params.id, req.user.driver_id, req.user.org_id]
+                );
+                return { message: `Shipment progressed to ${next_status}.` };
             }
-            await pool.query(`CALL transfer_to_warehouse($1, $2)`, [req.params.id, tw]);
-            return res.json({ message: 'Shipment reached warehouse.' });
-        }
-
-        await pool.query(
-            `UPDATE shipments
-             SET status = $1
-             WHERE shipment_id = $2 AND driver_id = $3 AND org_id = $4`,
-            [next_status, req.params.id, req.user.driver_id, req.user.org_id]
         );
-        res.json({ message: `Shipment progressed to ${next_status}.` });
+
+        if (result.notFound)    return res.status(404).json({ error: 'Shipment not found.' });
+        if (result.badStatus)   return res.status(400).json({ error: `Cannot progress from status '${result.badStatus}'.` });
+        if (result.wrongNext)   return res.status(400).json({ error: `Next status must be '${result.wrongNext}'.` });
+        if (result.noVehicle)   return res.status(400).json({ error: 'Shipment has no assigned vehicle.' });
+        if (result.noTransferWh) return res.status(400).json({ error: 'No transfer warehouse set for this shipment.' });
+        res.json(result);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to update shipment status.' });
     }
 });
 
-// PATCH /api/shipments/:id/status — update status manually
+// PATCH /api/shipments/:id/status — manual status override (admin only)
 router.patch('/:id/status', auth, async (req, res) => {
     const { status } = req.body;
     if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'Admin access required.' });
     }
+    if (!status || !VALID_STATUSES.has(status)) {
+        return res.status(400).json({
+            error: `Invalid status. Must be one of: ${[...VALID_STATUSES].join(', ')}.`,
+        });
+    }
     try {
-        await pool.query(
-            `UPDATE shipments SET status = $1 WHERE shipment_id = $2 AND org_id = $3`,
-            [status, req.params.id, req.user.org_id]
+        await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(
+                `UPDATE shipments SET status = $1 WHERE shipment_id = $2 AND org_id = $3`,
+                [status, req.params.id, req.user.org_id]
+            )
         );
         res.json({ message: 'Status updated successfully.' });
     } catch (err) {
@@ -555,9 +551,7 @@ router.patch('/:id/cancel', auth, async (req, res) => {
     }
     if (req.user.role === 'manager') {
         const ok = await managerCanAccessShipment(
-            req.user.user_id,
-            req.params.id,
-            req.user.org_id
+            req.user.user_id, req.params.id, req.user.org_id
         );
         if (!ok) {
             return res.status(403).json({
@@ -566,12 +560,36 @@ router.patch('/:id/cancel', auth, async (req, res) => {
         }
     }
     try {
-        await pool.query(
-            `UPDATE shipments
-             SET status = 'cancelled'
-             WHERE shipment_id = $1 AND org_id = $2`,
-            [req.params.id, req.user.org_id]
+        const result = await withRLSClient(
+            req.user.user_id, req.user.role,
+            async client => {
+                // Lock the row and read current status in one step
+                const existing = await client.query(
+                    `SELECT status FROM shipments
+                     WHERE shipment_id = $1 AND org_id = $2
+                     FOR UPDATE`,
+                    [req.params.id, req.user.org_id]
+                );
+                if (existing.rows.length === 0) return { notFound: true };
+
+                const currentStatus = existing.rows[0].status;
+                if (currentStatus === 'delivered' || currentStatus === 'cancelled') {
+                    return { conflict: true, status: currentStatus };
+                }
+
+                await client.query(
+                    `UPDATE shipments SET status = 'cancelled'
+                     WHERE shipment_id = $1 AND org_id = $2`,
+                    [req.params.id, req.user.org_id]
+                );
+                return { ok: true };
+            }
         );
+
+        if (result.notFound) return res.status(404).json({ error: 'Shipment not found.' });
+        if (result.conflict) return res.status(409).json({
+            error: `Cannot cancel a shipment with status '${result.status}'.`,
+        });
         res.json({ message: 'Shipment cancelled.' });
     } catch (err) {
         console.error(err);
@@ -579,7 +597,7 @@ router.patch('/:id/cancel', auth, async (req, res) => {
     }
 });
 
-// PATCH /api/shipments/:id/transfer-warehouse — set transfer destination (does NOT run transfer_to_warehouse)
+// PATCH /api/shipments/:id/transfer-warehouse — set transfer destination (manager only)
 router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
     if (req.user.role === 'driver') {
         return res.status(403).json({ error: 'Drivers cannot update transfer warehouse.' });
@@ -595,9 +613,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
     }
 
     const ok = await managerCanAccessShipment(
-        req.user.user_id,
-        req.params.id,
-        req.user.org_id
+        req.user.user_id, req.params.id, req.user.org_id
     );
     if (!ok) {
         return res.status(403).json({ error: 'You cannot update this shipment.' });
@@ -611,6 +627,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
+        await setRLSContext(client, req.user.user_id, req.user.role);
 
         const ship = await client.query(
             `SELECT shipment_id, status, delivery_mode, transfer_warehouse_id, origin_warehouse_id, org_id
@@ -637,7 +654,6 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Cannot set transfer warehouse for this shipment status.' });
         }
-
         if (Number(s.origin_warehouse_id) === twId) {
             await client.query('ROLLBACK');
             return res.status(400).json({
@@ -655,8 +671,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
         }
 
         await client.query(
-            `UPDATE shipments
-             SET transfer_warehouse_id = $1
+            `UPDATE shipments SET transfer_warehouse_id = $1
              WHERE shipment_id = $2 AND org_id = $3`,
             [twId, req.params.id, req.user.org_id]
         );
@@ -664,11 +679,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
         await client.query('COMMIT');
         res.json({ message: 'Transfer warehouse updated.' });
     } catch (err) {
-        try {
-            await client.query('ROLLBACK');
-        } catch (_) {
-            /* ignore rollback errors */
-        }
+        try { await client.query('ROLLBACK'); } catch (_) {}
         console.error(err);
         res.status(500).json({ error: 'Failed to update transfer warehouse.' });
     } finally {
@@ -676,7 +687,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
     }
 });
 
-// POST /api/shipments/:id/transfer
+// POST /api/shipments/:id/transfer — execute warehouse transfer
 router.post('/:id/transfer', auth, async (req, res) => {
     const { warehouse_id } = req.body;
     if (req.user.role === 'driver') {
@@ -684,9 +695,7 @@ router.post('/:id/transfer', auth, async (req, res) => {
     }
     if (req.user.role === 'manager') {
         const ok = await managerCanAccessShipment(
-            req.user.user_id,
-            req.params.id,
-            req.user.org_id
+            req.user.user_id, req.params.id, req.user.org_id
         );
         if (!ok) {
             return res.status(403).json({
@@ -695,9 +704,9 @@ router.post('/:id/transfer', auth, async (req, res) => {
         }
     }
     try {
-        await pool.query(
-            `CALL transfer_to_warehouse($1, $2)`,
-            [req.params.id, warehouse_id]
+        await withRLSClient(
+            req.user.user_id, req.user.role,
+            client => client.query(`CALL transfer_to_warehouse($1, $2)`, [req.params.id, warehouse_id])
         );
         res.json({ message: 'Shipment transferred to warehouse.' });
     } catch (err) {
@@ -711,58 +720,56 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
     try {
         if (req.user.role === 'manager') {
             const ok = await managerCanAccessShipment(
-                req.user.user_id,
-                req.params.id,
-                req.user.org_id
+                req.user.user_id, req.params.id, req.user.org_id
             );
             if (!ok) {
-                return res.status(403).json({
-                    error: 'You cannot access this shipment.'
-                });
+                return res.status(403).json({ error: 'You cannot access this shipment.' });
             }
         }
 
-        // get shipment origin warehouse location
-        const shipment = await pool.query(
-            `SELECT s.*, w.location AS warehouse_location
-             FROM shipments s
-             JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
-             WHERE s.shipment_id = $1 AND s.org_id = $2`,
-            [req.params.id, req.user.org_id]
-        );
+        const [shipmentRes, bestDriverRes, bestVehicleRes] = await Promise.all([
+            pool.query(
+                `SELECT s.weight_kg
+                 FROM shipments s
+                 WHERE s.shipment_id = $1 AND s.org_id = $2`,
+                [req.params.id, req.user.org_id]
+            ),
+            pool.query(
+                `SELECT d.driver_id, u.name, d.rating, d.total_deliveries, d.experience_years
+                 FROM drivers d
+                 JOIN users u ON u.user_id = d.user_id
+                 WHERE u.org_id = $1
+                   AND d.availability_status = 'available'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM shipments s
+                       WHERE s.driver_id = d.driver_id
+                         AND s.status NOT IN ('delivered', 'cancelled')
+                   )
+                 ORDER BY d.rating DESC, d.total_deliveries ASC
+                 LIMIT 1`,
+                [req.user.org_id]
+            ),
+            // vehicle weight check requires the shipment weight — fetch shipment first,
+            // but we can still parallelize because we'll filter in JS if shipment is missing
+            pool.query(
+                `SELECT vehicle_id, plate_number, vehicle_type, capacity_kg
+                 FROM vehicles
+                 WHERE org_id = $1 AND status = 'available'
+                 ORDER BY capacity_kg ASC`,
+                [req.user.org_id]
+            ),
+        ]);
 
-        if (shipment.rows.length === 0) {
+        if (shipmentRes.rows.length === 0) {
             return res.status(404).json({ error: 'Shipment not found.' });
         }
 
-        // best driver = available + highest rating + least active deliveries
-        const bestDriver = await pool.query(
-            `SELECT d.driver_id, u.name, d.rating,
-                    d.total_deliveries, d.experience_years
-             FROM drivers d
-             JOIN users u ON u.user_id = d.user_id
-             WHERE u.org_id = $1
-               AND d.availability_status = 'available'
-             ORDER BY d.rating DESC, d.total_deliveries ASC
-             LIMIT 1`,
-            [req.user.org_id]
-        );
-
-        // best vehicle = available + capacity fits shipment weight
-        const bestVehicle = await pool.query(
-            `SELECT vehicle_id, plate_number, vehicle_type, capacity_kg
-             FROM vehicles
-             WHERE org_id = $1
-               AND status = 'available'
-               AND capacity_kg >= $2
-             ORDER BY capacity_kg ASC
-             LIMIT 1`,
-            [req.user.org_id, shipment.rows[0].weight_kg || 0]
-        );
+        const weightKg = shipmentRes.rows[0].weight_kg || 0;
+        const bestVehicle = bestVehicleRes.rows.find(v => v.capacity_kg >= weightKg) || null;
 
         res.json({
-            suggested_driver:  bestDriver.rows[0]  || null,
-            suggested_vehicle: bestVehicle.rows[0] || null,
+            suggested_driver:  bestDriverRes.rows[0] || null,
+            suggested_vehicle: bestVehicle,
             reason: 'Highest rated available driver + smallest suitable vehicle',
         });
     } catch (err) {
@@ -772,12 +779,3 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-// POST = usually used to create a NEW resource or trigger an action/process (login, assign, complete, create).
-// PATCH = used to partially UPDATE AN EXISTING resource without replacing the whole record.
-
-// req.params = values taken from dynamic parts of URL path like /shipments/:id -> req.params.id
-// req.body = JSON data sent inside request body, usually used for form/input data.
-// req.query = values after ? in URL used for filters/search like ?page=2&status=active

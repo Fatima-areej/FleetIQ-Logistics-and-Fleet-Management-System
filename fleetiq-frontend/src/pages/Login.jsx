@@ -476,14 +476,13 @@ export default function Login() {
             <div className="login-right" style={{
                 width: 'min(440px, 100%)',
                 flexShrink: 0,
-                maxHeight: 'calc(100vh - 56px)',
-                overflowY: 'auto',
                 background: T.cardBg,
                 border: `1px solid ${T.border}`,
                 borderRadius: T.radiusXl,
                 boxShadow: T.shadowXl,
                 display: 'flex', flexDirection: 'column',
-                justifyContent: 'center', padding: '2rem 2.25rem',
+                justifyContent: 'flex-start',
+                padding: '2rem 2.25rem',
                 position: 'relative',
                 opacity: entered ? 1 : 0,
                 transform: entered ? 'translateX(0)' : 'translateX(12px)',
@@ -497,6 +496,9 @@ export default function Login() {
                     background: `linear-gradient(90deg, transparent 0%, ${T.accent} 35%, ${T.accentMuted} 65%, transparent 100%)`,
                     opacity: 0.9,
                 }} />
+
+                {/* flex wrapper: auto margins center signin content; collapses for signup */}
+                <div style={{ margin: 'auto 0', width: '100%' }}>
 
                 {/* Sign in / Create org toggle */}
                 <div style={{
@@ -958,6 +960,8 @@ export default function Login() {
                     ))}
                 </div>
                 )}
+
+                </div>{/* end auto-margin centering wrapper */}
 
                 {/* bottom corner label */}
                 <div style={{

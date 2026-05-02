@@ -88,19 +88,10 @@ router.get('/nearest', auth, async (req, res) => {
     }
     try {
         const result = await pool.query(
-            `SELECT warehouse_id, name, city, address,
-                    capacity_units, current_load,
-                    ROUND((ST_Distance(
-                        location,
-                        ST_MakePoint($1, $2)::geography
-                    ) / 1000)::NUMERIC, 2) AS distance_km
-             FROM warehouses
-             WHERE org_id = $3 AND location IS NOT NULL
-             ORDER BY location <-> ST_MakePoint($1, $2)::geography
-             LIMIT 1`,
-            [parseFloat(lng), parseFloat(lat), req.user.org_id]
+            `SELECT * FROM get_nearest_warehouse($1, $2, $3)`,
+            [parseFloat(lat), parseFloat(lng), req.user.org_id]
         );
-        res.json(result.rows[0]);
+        res.json(result.rows[0] || null);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to find nearest warehouse.' });

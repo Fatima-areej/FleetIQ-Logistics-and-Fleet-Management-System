@@ -667,7 +667,7 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
                                                             Deliver
                                                         </Btn>
                                                     )}
-                                                    {!readOnly && managerLocked && s.status !== 'created' && !['delivered','cancelled'].includes(s.status) && (
+                                                    {!readOnly && managerLocked && s.status === 'created' && (
                                                         <Btn size="sm" variant="danger"
                                                             onClick={() => cancelShipment(s.shipment_id)}>
                                                             Delete
@@ -1356,7 +1356,7 @@ function ShipmentDetail({ data, readOnly, managerLocked, onAssign, onCancel, onC
                         Mark Delivered
                     </Btn>
                 )}
-                {!readOnly && managerLocked && shipment.status !== 'created' && !['delivered','cancelled'].includes(shipment.status) && (
+                {!readOnly && managerLocked && shipment.status === 'created' && (
                     <Btn size="sm" variant="danger" onClick={onCancel}>
                         Delete
                     </Btn>

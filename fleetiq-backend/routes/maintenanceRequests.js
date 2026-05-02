@@ -263,7 +263,7 @@ router.patch('/:id/status', auth, managerOnly, async (req, res) => {
 
         // Load request (and lock) so we can also update vehicle status on resolve
         const reqRow = await client.query(
-            `SELECT request_id, org_id, vehicle_id
+            `SELECT request_id, org_id, vehicle_id, priority, description
              FROM maintenance_requests
              WHERE request_id = $1 AND assigned_manager_id = $2
              FOR UPDATE`,
@@ -273,7 +273,8 @@ router.patch('/:id/status', auth, managerOnly, async (req, res) => {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Request not found.' });
         }
-        const { org_id: orgId, vehicle_id: vehicleId } = reqRow.rows[0];
+        const { org_id: orgId, vehicle_id: vehicleId,
+                priority, description: reqDescription } = reqRow.rows[0];
 
         const updated = await client.query(
             `UPDATE maintenance_requests
@@ -295,6 +296,23 @@ router.patch('/:id/status', auth, managerOnly, async (req, res) => {
                  SET status = 'available'
                  WHERE vehicle_id = $1 AND org_id = $2`,
                 [vehicleId, orgId]
+            );
+
+            // Log completed maintenance into vehicle_maintenance for fleet analytics
+            await client.query(
+                `INSERT INTO vehicle_maintenance
+                     (vehicle_id, maintenance_type, description, performed_by, performed_at)
+                 VALUES ($1,
+                     CASE $2
+                         WHEN 'urgent' THEN 'emergency'
+                         WHEN 'high'   THEN 'repair'
+                         WHEN 'low'    THEN 'inspection'
+                         ELSE               'routine'
+                     END::maintenance_type_enum,
+                     $3,
+                     (SELECT name FROM users WHERE user_id = $4),
+                     NOW())`,
+                [vehicleId, priority, reqDescription, req.user.user_id]
             );
         }
 
@@ -336,6 +354,7 @@ router.get('/driver', auth, async (req, res) => {
 router.post('/:id/assign-replacement', auth, managerOnly, async (req, res) => {
     const requestId = parseInt(req.params.id);
     const replacementId = parseInt(req.body?.replacement_vehicle_id);
+    const note = req.body?.note ? String(req.body.note).trim() : null;
     if (!requestId || !replacementId) {
         return res.status(400).json({ error: 'replacement_vehicle_id is required.' });
     }
@@ -452,6 +471,8 @@ router.post('/:id/assign-replacement', auth, managerOnly, async (req, res) => {
         );
         const replPlateNumber = replPlate.rows[0]?.plate_number || `#${replacementId}`;
 
+        const autoText = `Replacement assigned: ${replPlateNumber} (vehicle_id=${replacementId})`;
+        const appendText = note ? `${autoText}\nManager note: ${note}` : autoText;
         await client.query(
             `UPDATE maintenance_requests
              SET resolved_at = NULL,
@@ -462,7 +483,7 @@ router.post('/:id/assign-replacement', auth, managerOnly, async (req, res) => {
                      $2
                  )
              WHERE request_id = $1`,
-            [requestId, `Replacement assigned: ${replPlateNumber} (vehicle_id=${replacementId})`]
+            [requestId, appendText]
         );
 
         await client.query('COMMIT');

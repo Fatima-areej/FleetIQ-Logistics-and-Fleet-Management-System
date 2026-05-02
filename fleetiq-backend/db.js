@@ -1,15 +1,4 @@
-/*
-
-handles postgreSQL database connection using the pg library.
-It reads database configuration from environment variables, 
-establishes a connection pool, and exports the pool for use in other parts of the application. 
-
-*/
-
-// only import the Pool class from the pg library, which allows us to create a pool of database connections.
-// instead of new connection for every query, we borrow a connection from the pool, use it, and then return it to the pool.
-
-const { Pool } = require('pg');     //pg is postgreSQL client for Node.js. 
+const { Pool } = require('pg');
 require('dotenv').config();
 
 const pool = new Pool({
@@ -28,4 +17,42 @@ pool.on('error', (err) => {
     console.error('Database error:', err);
 });
 
+// Wraps a callback in a transaction that sets app.current_user_id for the
+// duration of that transaction only (used by audit triggers).
+// SET LOCAL ROLE is intentionally omitted while the app connects as a
+// superuser (postgres): switching to a limited role would lose superuser
+// privileges and break trigger writes to shipment_status_history and others.
+// When the connection is migrated to the fleetiq_app non-superuser, re-add
+// SET LOCAL ROLE here and grant INSERT on shipment_status_history to
+// fleet_manager / fleet_driver (and make trigger functions SECURITY DEFINER).
+async function withRLSClient(userId, _role, callback) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(
+            `SELECT set_config('app.current_user_id', $1, true)`,
+            [String(userId)]
+        );
+        const result = await callback(client);
+        await client.query('COMMIT');
+        return result;
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+// Sets user context at the start of an already-open transaction.
+// Must be called AFTER BEGIN and BEFORE any DML or CALL.
+async function setRLSContext(client, userId, _role) {
+    await client.query(
+        `SELECT set_config('app.current_user_id', $1, true)`,
+        [String(userId)]
+    );
+}
+
 module.exports = pool;
+module.exports.withRLSClient = withRLSClient;
+module.exports.setRLSContext = setRLSContext;

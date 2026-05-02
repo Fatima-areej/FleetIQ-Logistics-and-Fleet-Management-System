@@ -195,7 +195,7 @@ export default function AdminSettings() {
                         { icon: '🔧', label: 'Stored Procedures',
                           desc: '5 procedures — assign shipment, complete delivery, transfer warehouse, nearest warehouse, rate calculation' },
                         { icon: '👁', label: 'Views',
-                          desc: '5 analytical views — active shipments, driver performance, fleet utilization, warehouse throughput, delayed shipments' },
+                          desc: '6 analytical views — active shipments, driver performance, fleet utilization, warehouse throughput, delayed shipments, driver-manager assignments' },
                         { icon: '🗺', label: 'Geo-Spatial',
                           desc: 'PostGIS geography columns with GIST indexes — nearest warehouse query, vehicle/shipment mapping' },
                         { icon: '🔒', label: 'Row Level Security',
