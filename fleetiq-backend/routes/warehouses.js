@@ -98,6 +98,44 @@ router.get('/nearest', auth, async (req, res) => {
     }
 });
 
+// GET /api/warehouses/within-radius?lat=&lng=&km=
+// Returns all warehouses within km kilometres of the given point, ordered nearest-first.
+// Uses PostGIS ST_DWithin for index-assisted filtering + ST_Distance for exact km values.
+router.get('/within-radius', auth, async (req, res) => {
+    const { lat, lng, km = 100 } = req.query;
+    if (!lat || !lng) {
+        return res.status(400).json({ error: 'lat and lng are required.' });
+    }
+    try {
+        const result = await pool.query(
+            `SELECT * FROM warehouses_within_radius($1, $2, $3, $4)`,
+            [parseFloat(lat), parseFloat(lng), parseFloat(km), req.user.org_id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to find warehouses within radius.' });
+    }
+});
+
+// GET /api/warehouses/forecast
+// Returns current load + pending inbound shipments per warehouse so the admin
+// can spot which warehouses are about to fill up before shipments actually arrive.
+router.get('/forecast', auth, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM warehouse_load_forecast_view
+             WHERE org_id = $1
+             ORDER BY forecast_load_pct DESC`,
+            [req.user.org_id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch warehouse forecast.' });
+    }
+});
+
 // GET /api/warehouses/:id
 router.get('/:id', auth, async (req, res) => {
     try {

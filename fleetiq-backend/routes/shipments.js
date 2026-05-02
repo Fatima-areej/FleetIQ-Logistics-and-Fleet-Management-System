@@ -186,7 +186,17 @@ router.get('/:id', auth, async (req, res) => {
                                 v.vehicle_type, w.name AS origin_warehouse,
                                 w.city AS origin_city,
                                 tw.name AS transfer_warehouse,
-                                tw.city AS transfer_city
+                                tw.city AS transfer_city,
+                                CASE
+                                    WHEN w.location IS NOT NULL
+                                     AND s.destination_location IS NOT NULL
+                                    THEN ROUND(
+                                        (ST_Distance(w.location, s.destination_location) / 1000)::NUMERIC,
+                                    2)
+                                    ELSE NULL
+                                END AS distance_km,
+                                ST_Y(s.destination_location::geometry) AS dest_lat,
+                                ST_X(s.destination_location::geometry) AS dest_lng
                          FROM shipments s
                          LEFT JOIN drivers d    ON d.driver_id    = s.driver_id
                          LEFT JOIN users u      ON u.user_id      = d.user_id
@@ -728,16 +738,32 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
         }
 
         const [shipmentRes, bestDriverRes, bestVehicleRes] = await Promise.all([
+            // Include origin_warehouse_id so we can run the route-optimisation query after
             pool.query(
-                `SELECT s.weight_kg
+                `SELECT s.weight_kg,
+                        s.origin_warehouse_id,
+                        ST_Y(s.destination_location::geometry) AS dest_lat,
+                        ST_X(s.destination_location::geometry) AS dest_lng
                  FROM shipments s
                  WHERE s.shipment_id = $1 AND s.org_id = $2`,
                 [req.params.id, req.user.org_id]
             ),
+            // Weighted smart score: 50% rating + 50% on-time rate (expressed as 0–5 scale)
+            // Drivers with no history get a neutral 50% on-time assumption.
             pool.query(
-                `SELECT d.driver_id, u.name, d.rating, d.total_deliveries, d.experience_years
+                `SELECT d.driver_id, u.name, d.rating, d.total_deliveries, d.experience_years,
+                        dpv.completed_deliveries, dpv.on_time_deliveries, dpv.avg_delivery_hours,
+                        ROUND(
+                            (d.rating * 0.5) +
+                            (CASE WHEN dpv.completed_deliveries > 0
+                                  THEN (dpv.on_time_deliveries::NUMERIC
+                                        / NULLIF(dpv.completed_deliveries, 0)) * 5.0 * 0.5
+                                  ELSE 2.5 * 0.5
+                             END),
+                        2) AS smart_score
                  FROM drivers d
                  JOIN users u ON u.user_id = d.user_id
+                 LEFT JOIN driver_performance_view dpv ON dpv.driver_id = d.driver_id
                  WHERE u.org_id = $1
                    AND d.availability_status = 'available'
                    AND NOT EXISTS (
@@ -745,18 +771,38 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
                        WHERE s.driver_id = d.driver_id
                          AND s.status NOT IN ('delivered', 'cancelled')
                    )
-                 ORDER BY d.rating DESC, d.total_deliveries ASC
+                 ORDER BY smart_score DESC, d.experience_years DESC
                  LIMIT 1`,
                 [req.user.org_id]
             ),
-            // vehicle weight check requires the shipment weight — fetch shipment first,
-            // but we can still parallelize because we'll filter in JS if shipment is missing
+            // Vehicles ordered by distance to origin warehouse (nearest first).
+            // LATERAL subquery fetches the origin warehouse location in one join;
+            // capacity filter happens in JS so we can still run this in parallel
+            // before knowing weight_kg.
             pool.query(
-                `SELECT vehicle_id, plate_number, vehicle_type, capacity_kg
-                 FROM vehicles
-                 WHERE org_id = $1 AND status = 'available'
-                 ORDER BY capacity_kg ASC`,
-                [req.user.org_id]
+                `SELECT v.vehicle_id, v.plate_number, v.vehicle_type, v.capacity_kg,
+                        CASE
+                            WHEN v.current_location IS NOT NULL AND wh.location IS NOT NULL
+                            THEN ROUND(
+                                (ST_Distance(v.current_location, wh.location) / 1000)::NUMERIC,
+                            2)
+                            ELSE NULL
+                        END AS distance_to_origin_km
+                 FROM vehicles v
+                 LEFT JOIN LATERAL (
+                     SELECT w.location
+                     FROM   shipments s
+                     JOIN   warehouses w ON w.warehouse_id = s.origin_warehouse_id
+                     WHERE  s.shipment_id = $2 AND s.org_id = $1
+                     LIMIT  1
+                 ) wh ON TRUE
+                 WHERE v.org_id = $1 AND v.status = 'available'
+                 ORDER BY
+                     CASE WHEN v.current_location IS NOT NULL AND wh.location IS NOT NULL
+                          THEN ST_Distance(v.current_location, wh.location)
+                          ELSE 999999999
+                     END ASC`,
+                [req.user.org_id, req.params.id]
             ),
         ]);
 
@@ -764,17 +810,61 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
             return res.status(404).json({ error: 'Shipment not found.' });
         }
 
-        const weightKg = shipmentRes.rows[0].weight_kg || 0;
+        const { weight_kg, origin_warehouse_id, dest_lat, dest_lng } = shipmentRes.rows[0];
+        const weightKg = weight_kg || 0;
+        // Pick the closest vehicle that can carry the weight
         const bestVehicle = bestVehicleRes.rows.find(v => v.capacity_kg >= weightKg) || null;
 
+        // Optimal transfer warehouse: minimises origin→warehouse + warehouse→destination.
+        // Only meaningful when both origin warehouse and destination coords are known.
+        let optimalTransferWarehouses = [];
+        if (origin_warehouse_id && dest_lat && dest_lng) {
+            const otRes = await pool.query(
+                `SELECT * FROM optimal_transfer_warehouses($1, $2, $3, $4) LIMIT 3`,
+                [origin_warehouse_id,
+                 parseFloat(dest_lat), parseFloat(dest_lng),
+                 req.user.org_id]
+            );
+            optimalTransferWarehouses = otRes.rows;
+        }
+
         res.json({
-            suggested_driver:  bestDriverRes.rows[0] || null,
-            suggested_vehicle: bestVehicle,
-            reason: 'Highest rated available driver + smallest suitable vehicle',
+            suggested_driver:            bestDriverRes.rows[0] || null,
+            suggested_vehicle:           bestVehicle,
+            optimal_transfer_warehouses: optimalTransferWarehouses,
+            reason: 'Driver: smart score (50% rating + 50% on-time rate). Vehicle: closest to origin with enough capacity. Transfer warehouses: ranked by origin→stop + stop→destination total km.',
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to get suggestions.' });
+    }
+});
+
+// GET /api/shipments/:id/delay-risk
+// Uses the predict_shipment_delay() DB function to assess whether this shipment
+// is at risk of missing its deadline, based on the assigned driver's historical
+// average delivery time vs the remaining window.
+router.get('/:id/delay-risk', auth, async (req, res) => {
+    try {
+        if (req.user.role === 'manager') {
+            const ok = await managerCanAccessShipment(
+                req.user.user_id, req.params.id, req.user.org_id
+            );
+            if (!ok) {
+                return res.status(403).json({ error: 'You cannot access this shipment.' });
+            }
+        }
+        const result = await pool.query(
+            `SELECT * FROM predict_shipment_delay($1)`,
+            [req.params.id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Shipment not found.' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to predict delay risk.' });
     }
 });
 
