@@ -18,12 +18,14 @@ const managerOnlyAnalytics = (req, res, next) => {
 };
 
 // GET /api/analytics/manager-dashboard — stats scoped to warehouses assigned to this manager
-//
-// Reduced from 6 parallel queries to 2:
+
 //  - One CTE query computes all scalar totals + aggregated arrays in a single pass
-//    over the manager's shipments, eliminating the repeated subquery.
+//    over the manager's shipments
+
 //  - One separate query for the warehouse throughput view (different row shape).
+
 //  - One tiny query for open maintenance count (different table, no shipment join).
+
 router.get('/manager-dashboard', auth, managerOnlyAnalytics, async (req, res) => {
     const uid   = req.user.user_id;
     const orgId = req.user.org_id;
@@ -41,7 +43,7 @@ router.get('/manager-dashboard', auth, managerOnlyAnalytics, async (req, res) =>
                 [orgId, uid]
             ),
 
-            // Single CTE query — my_wh is defined once and reused by every sub-select
+            // dashboard query with CTEs to scope to manager's assigned warehouses and avoid redundant scanning of shipments table
             pool.query(
                 `WITH my_wh AS (
                      SELECT warehouse_id

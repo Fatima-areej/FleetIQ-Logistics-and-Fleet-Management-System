@@ -9,7 +9,8 @@ const router  = express.Router();
 const pool    = require('../db');
 const auth    = require('../middleware/auth');
 
-// ── GET /api/memos — all conversation threads (root memos) you participate in
+// GET /api/memos — all conversation threads (root memos) you participate in
+
 router.get('/', auth, async (req, res) => {
     try {
         const uid = req.user.user_id;
@@ -49,7 +50,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-// ── GET /api/memos/sent — threads you started (optional filter); same shape as GET /
+// GET /api/memos/sent — threads you started (optional filter); same shape as GET /
 router.get('/sent', auth, async (req, res) => {
     try {
         const uid = req.user.user_id;
@@ -89,7 +90,7 @@ router.get('/sent', auth, async (req, res) => {
     }
 });
 
-// ── GET /api/memos/recipients — who can this user send to 
+// GET /api/memos/recipients — who can this user send to 
 router.get('/recipients', auth, async (req, res) => {
     try {
         let query;
@@ -153,7 +154,7 @@ async function resolveThreadRootId(client, memoId) {
     return result.rows[0]?.memo_id ?? null;
 }
 
-// ── GET /api/memos/:id — single memo with thread (always anchored at root)
+// GET /api/memos/:id — single memo with thread (always anchored at root)
 router.get('/:id', auth, async (req, res) => {
     const client = await pool.connect();
     try {
@@ -219,7 +220,7 @@ router.get('/:id', auth, async (req, res) => {
     }
 });
 
-// ── POST /api/memos — send a memo
+// POST /api/memos — send a memo
 router.post('/', auth, async (req, res) => {
     const { receiver_id, subject, body } = req.body;
 
@@ -279,7 +280,7 @@ router.post('/', auth, async (req, res) => {
     }
 });
 
-// ── POST /api/memos/:id/reply 
+// POST /api/memos/:id/reply 
 router.post('/:id/reply', auth, async (req, res) => {
     const { body } = req.body;
 
@@ -361,7 +362,7 @@ router.post('/:id/reply', auth, async (req, res) => {
     }
 });
 
-// ── PATCH /api/memos/:id/read — mark entire thread read for current user
+// PATCH /api/memos/:id/read — mark entire thread read for current user
 router.patch('/:id/read', auth, async (req, res) => {
     const client = await pool.connect();
     try {

@@ -12,7 +12,6 @@ const adminOnly = (req, res, next) => {
     next();
 };
 
-
 // GET /api/org — get org profile
 router.get('/', auth, async (req, res) => {
     try {
@@ -48,7 +47,7 @@ router.patch('/', auth, adminOnly, async (req, res) => {
     }
 });
 
-// ─── USER MANAGEMENT ─────────────────────────────────────────
+// USER MANAGEMENT 
 
 // GET /api/org/users — all users in org
 router.get('/users', auth, adminOnly, async (req, res) => {
@@ -73,7 +72,8 @@ router.get('/users', auth, adminOnly, async (req, res) => {
     }
 });
 
-// POST /api/org/users — create manager or driver
+// POST /api/org/users - create manager or driver
+
 router.post('/users', auth, adminOnly, async (req, res) => {
     const { name, email, password, role,
             license_number, experience_years } = req.body;
@@ -136,6 +136,7 @@ router.post('/users', auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/org/users/:id/deactivate
+
 router.patch('/users/:id/deactivate', auth, adminOnly, async (req, res) => {
     try {
         await pool.query(
@@ -151,6 +152,7 @@ router.patch('/users/:id/deactivate', auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/org/users/:id/reactivate
+
 router.patch('/users/:id/reactivate', auth, adminOnly, async (req, res) => {
     try {
         await pool.query(
@@ -166,6 +168,7 @@ router.patch('/users/:id/reactivate', auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/org/users/:id — update user details
+
 router.patch('/users/:id', auth, adminOnly, async (req, res) => {
     const { name, email } = req.body;
     try {

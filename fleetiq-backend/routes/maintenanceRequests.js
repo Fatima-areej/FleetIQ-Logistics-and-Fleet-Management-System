@@ -41,6 +41,7 @@ async function pickLeastLoadedManagerForWarehouse({ warehouseId }) {
 
 // POST /api/maintenance-requests/driver
 // Driver requests maintenance for their assigned vehicle while on an active shipment.
+
 router.post('/driver', auth, async (req, res) => {
     if (req.user.role !== 'driver') {
         return res.status(403).json({ error: 'Driver access required.' });
@@ -146,6 +147,7 @@ router.post('/driver', auth, async (req, res) => {
 
 // POST /api/maintenance-requests/admin
 // Admin schedules maintenance for a vehicle and assigns it to a manager.
+
 router.post('/admin', auth, adminOnly, async (req, res) => {
     const { vehicle_id, assigned_manager_id, title, description, priority } = req.body || {};
     const vehicleId = parseInt(vehicle_id);
@@ -465,6 +467,7 @@ router.post('/:id/assign-replacement', auth, managerOnly, async (req, res) => {
 
         // Record replacement in description (no schema change). Do NOT change status —
         // manager will explicitly control status via Start/Resolve/Cancel.
+        
         const replPlate = await client.query(
             `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
             [replacementId]

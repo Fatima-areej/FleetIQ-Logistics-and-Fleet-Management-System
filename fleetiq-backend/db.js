@@ -1,13 +1,25 @@
-const { Pool } = require('pg');
+/*
+
+Database Connection + security context layer. It:
+
+connects Node.js to PostgreSQL
+manages database transactions
+passes the logged-in user identity into PostgreSQL for RLS policies
+
+*/
+
+const { Pool } = require('pg'); //postgresql library for Node.js
 require('dotenv').config();
 
-const pool = new Pool({
+const pool = new Pool({                 //creating connection pool
     host:     process.env.DB_HOST,
     port:     process.env.DB_PORT,
     database: process.env.DB_NAME,
     user:     process.env.DB_USER,
     password: process.env.DB_PASSWORD,
 });
+
+//Event listeners 
 
 pool.on('connect', () => {
     console.log('Connected to PostgreSQL');
@@ -17,14 +29,16 @@ pool.on('error', (err) => {
     console.error('Database error:', err);
 });
 
-// Wraps a callback in a transaction that sets app.current_user_id for the
-// duration of that transaction only (used by audit triggers).
-// SET LOCAL ROLE is intentionally omitted while the app connects as a
-// superuser (postgres): switching to a limited role would lose superuser
-// privileges and break trigger writes to shipment_status_history and others.
-// When the connection is migrated to the fleetiq_app non-superuser, re-add
-// SET LOCAL ROLE here and grant INSERT on shipment_status_history to
-// fleet_manager / fleet_driver (and make trigger functions SECURITY DEFINER).
+/*
+
+This function: creates database client, starts a transaction, sets the user context for RLS, 
+executes the provided callback function (which contains the actual database operations), 
+commits the transaction if successful, 
+rolls back if there's an error,
+and finally releases the client back to the pool.
+
+*/
+
 async function withRLSClient(userId, _role, callback) {
     const client = await pool.connect();
     try {
@@ -46,6 +60,7 @@ async function withRLSClient(userId, _role, callback) {
 
 // Sets user context at the start of an already-open transaction.
 // Must be called AFTER BEGIN and BEFORE any DML or CALL.
+
 async function setRLSContext(client, userId, _role) {
     await client.query(
         `SELECT set_config('app.current_user_id', $1, true)`,

@@ -99,8 +99,10 @@ router.get('/nearest', auth, async (req, res) => {
 });
 
 // GET /api/warehouses/within-radius?lat=&lng=&km=
+
 // Returns all warehouses within km kilometres of the given point, ordered nearest-first.
 // Uses PostGIS ST_DWithin for index-assisted filtering + ST_Distance for exact km values.
+
 router.get('/within-radius', auth, async (req, res) => {
     const { lat, lng, km = 100 } = req.query;
     if (!lat || !lng) {
@@ -119,8 +121,10 @@ router.get('/within-radius', auth, async (req, res) => {
 });
 
 // GET /api/warehouses/forecast
+
 // Returns current load + pending inbound shipments per warehouse so the admin
 // can spot which warehouses are about to fill up before shipments actually arrive.
+
 router.get('/forecast', auth, async (req, res) => {
     try {
         const result = await pool.query(
@@ -137,8 +141,12 @@ router.get('/forecast', auth, async (req, res) => {
 });
 
 // GET /api/warehouses/overflow-alerts
+
 // For each warehouse forecast above 80% capacity, uses ST_Distance (PostGIS) to find
 // the nearest alternative warehouse still under 70% forecast load.
+
+//uses CTE 
+
 router.get('/overflow-alerts', auth, async (req, res) => {
     try {
         const result = await pool.query(
@@ -200,7 +208,20 @@ router.get('/overflow-alerts', auth, async (req, res) => {
     }
 });
 
+/*
+we are using cross join lateral
+It means:
+“For EACH overloaded warehouse, run a mini-query on candidates.”
+
+So:
+For every o (overloaded warehouse):
+find nearest a (available warehouse)
+
+*/
+
+
 // GET /api/warehouses/:id
+// Returns warehouse details + assigned managers + active shipments originating from this warehouse.
 router.get('/:id', auth, async (req, res) => {
     try {
         const warehouse = await pool.query(

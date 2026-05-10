@@ -62,7 +62,7 @@ router.get('/map', auth, async (req, res) => {
     }
 });
 
-// POST /api/vehicles — admin adds vehicle
+// POST /api/vehicles - admin adds vehicle
 
 //only admin can add vehicles, so we use the adminOnly middleware to protect this route.
 
@@ -89,7 +89,14 @@ router.post('/', auth, adminOnly, async (req, res) => {
     }
 });
 
-// PATCH /api/vehicles/:id/location — driver pushes live GPS position for their assigned vehicle
+// PATCH /api/vehicles/:id/location - driver pushes live GPS position for their assigned vehicle
+
+/*
+
+real time GPS tracking of vehicles 
+
+*/
+
 router.patch('/:id/location', auth, async (req, res) => {
     if (req.user.role !== 'driver') {
         return res.status(403).json({ error: 'Driver access required.' });
@@ -121,7 +128,7 @@ router.patch('/:id/location', auth, async (req, res) => {
     }
 });
 
-// PATCH /api/vehicles/:id — admin updates vehicle
+// PATCH /api/vehicles/:id - admin updates vehicle
 router.patch('/:id', auth, adminOnly, async (req, res) => {
     const { plate_number, vehicle_type, capacity_kg } = req.body;
     try {

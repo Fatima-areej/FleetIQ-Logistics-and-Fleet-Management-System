@@ -103,14 +103,14 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// POST /api/auth/register — disabled for public multi-tenant safety (use register-organization or admin invite).
+// POST /api/auth/register : disabled for public multi-tenant safety (use register-organization or admin invite).
 router.post('/register', async (req, res) => {
     return res.status(403).json({
         error: 'This endpoint is disabled. Create a new organization from the sign-up form on the login page, or ask your administrator to invite you under Team.',
     });
 });
 
-// POST /api/auth/register-organization — public: new company + first admin (multi-tenant onboarding)
+// POST /api/auth/register-organization , public: new company + first admin (multi-tenant onboarding)
 router.post('/register-organization', async (req, res) => {
     const {
         organization_name,
@@ -160,7 +160,7 @@ router.post('/register-organization', async (req, res) => {
     const client = await pool.connect();
     let committed = false;
     try {
-        await client.query('BEGIN');
+        await client.query('BEGIN');        //transaction start
 
         const dupOrg = await client.query(
             `SELECT org_id FROM organizations
@@ -179,7 +179,7 @@ router.post('/register-organization', async (req, res) => {
             [emailNorm]
         );
         if (dupEmail.rows.length > 0) {
-            await client.query('ROLLBACK');
+            await client.query('ROLLBACK');     //rollback transaction on error
             return res.status(409).json({
                 error: 'This email is already registered. Sign in or use a different email.',
             });
@@ -203,7 +203,7 @@ router.post('/register-organization', async (req, res) => {
         );
         const user = userRes.rows[0];
 
-        await client.query('COMMIT');
+        await client.query('COMMIT');       //transaction commit   
         committed = true;
 
         const token = jwt.sign(

@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const pool    = require('../db');
-const { withRLSClient, setRLSContext } = pool;
+const { withRLSClient, setRLSContext } = pool;      //It connects Node.js to PostgreSQL RLS security system
 const auth    = require('../middleware/auth');
 
 // Valid shipment_status_enum values — used to validate manual status updates
@@ -10,6 +10,8 @@ const VALID_STATUSES = new Set([
     'at_warehouse', 'out_for_delivery', 'delivered', 'cancelled',
 ]);
 
+
+// checks if a manager is assigned to the relevant warehouse(s) for a given shipment or warehouse.
 async function managerCanAccessWarehouse(managerUserId, warehouseId) {
     const result = await pool.query(
         `SELECT 1
@@ -21,6 +23,7 @@ async function managerCanAccessWarehouse(managerUserId, warehouseId) {
     return result.rows.length > 0;
 }
 
+// checks against the origin warehouse since that's the main point of control for managers.
 async function managerCanAccessShipment(managerUserId, shipmentId, orgId) {
     const result = await pool.query(
         `SELECT 1
@@ -37,6 +40,10 @@ async function managerCanAccessShipment(managerUserId, shipmentId, orgId) {
 }
 
 // GET /api/shipments — active shipments, role-scoped
+// Drivers see their own active shipments, 
+// managers see active shipments from their assigned warehouses, 
+// admins see all active shipments.
+
 router.get('/', auth, async (req, res) => {
     try {
         let query, params;
@@ -175,6 +182,7 @@ router.get('/delayed', auth, async (req, res) => {
 
 // GET /api/shipments/:id — single shipment with history, items, and stops
 // Runs the four sub-queries in parallel inside one RLS-context transaction.
+
 router.get('/:id', auth, async (req, res) => {
     try {
         const data = await withRLSClient(
@@ -307,7 +315,7 @@ router.post('/', auth, async (req, res) => {
 
         const newShipment = result.rows[0];
 
-        // Batch-insert all items in a single query using UNNEST — avoids N round-trips
+        // Batch-insert all items in a single query using UNNEST avoids N round-trips
         if (items && items.length > 0) {
             await client.query(
                 `INSERT INTO shipment_items
@@ -529,6 +537,7 @@ router.post('/:id/driver-progress', auth, async (req, res) => {
 });
 
 // PATCH /api/shipments/:id/status — manual status override (admin only)
+
 router.patch('/:id/status', auth, async (req, res) => {
     const { status } = req.body;
     if (req.user.role !== 'admin') {
@@ -555,6 +564,7 @@ router.patch('/:id/status', auth, async (req, res) => {
 });
 
 // PATCH /api/shipments/:id/cancel
+
 router.patch('/:id/cancel', auth, async (req, res) => {
     if (req.user.role === 'driver') {
         return res.status(403).json({ error: 'Drivers cannot cancel shipments.' });
@@ -608,6 +618,7 @@ router.patch('/:id/cancel', auth, async (req, res) => {
 });
 
 // PATCH /api/shipments/:id/transfer-warehouse — set transfer destination (manager only)
+
 router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
     if (req.user.role === 'driver') {
         return res.status(403).json({ error: 'Drivers cannot update transfer warehouse.' });
@@ -698,6 +709,7 @@ router.patch('/:id/transfer-warehouse', auth, async (req, res) => {
 });
 
 // POST /api/shipments/:id/transfer — execute warehouse transfer
+
 router.post('/:id/transfer', auth, async (req, res) => {
     const { warehouse_id } = req.body;
     if (req.user.role === 'driver') {
@@ -726,6 +738,7 @@ router.post('/:id/transfer', auth, async (req, res) => {
 });
 
 // GET /api/shipments/:id/suggest-assignment
+
 router.get('/:id/suggest-assignment', auth, async (req, res) => {
     try {
         if (req.user.role === 'manager') {
@@ -748,8 +761,10 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
                  WHERE s.shipment_id = $1 AND s.org_id = $2`,
                 [req.params.id, req.user.org_id]
             ),
+
             // Weighted smart score: 50% rating + 50% on-time rate (expressed as 0–5 scale)
             // Drivers with no history get a neutral 50% on-time assumption.
+
             pool.query(
                 `SELECT d.driver_id, u.name, d.rating, d.total_deliveries, d.experience_years,
                         dpv.completed_deliveries, dpv.on_time_deliveries, dpv.avg_delivery_hours,
@@ -775,10 +790,12 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
                  LIMIT 1`,
                 [req.user.org_id]
             ),
+
             // Vehicles ordered by distance to origin warehouse (nearest first).
             // LATERAL subquery fetches the origin warehouse location in one join;
             // capacity filter happens in JS so we can still run this in parallel
             // before knowing weight_kg.
+
             pool.query(
                 `SELECT v.vehicle_id, v.plate_number, v.vehicle_type, v.capacity_kg,
                         CASE
@@ -812,11 +829,14 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
 
         const { weight_kg, origin_warehouse_id, dest_lat, dest_lng } = shipmentRes.rows[0];
         const weightKg = weight_kg || 0;
+
         // Pick the closest vehicle that can carry the weight
+
         const bestVehicle = bestVehicleRes.rows.find(v => v.capacity_kg >= weightKg) || null;
 
         // Optimal transfer warehouse: minimises origin→warehouse + warehouse→destination.
         // Only meaningful when both origin warehouse and destination coords are known.
+
         let optimalTransferWarehouses = [];
         if (origin_warehouse_id && dest_lat && dest_lng) {
             const otRes = await pool.query(
@@ -844,6 +864,7 @@ router.get('/:id/suggest-assignment', auth, async (req, res) => {
 // Uses the predict_shipment_delay() DB function to assess whether this shipment
 // is at risk of missing its deadline, based on the assigned driver's historical
 // average delivery time vs the remaining window.
+
 router.get('/:id/delay-risk', auth, async (req, res) => {
     try {
         if (req.user.role === 'manager') {

@@ -12,7 +12,7 @@ It works sort of like a security checkpoint.
 const jwt = require('jsonwebtoken');    // imports the jsonwebtoken library to handle JWT tokens
 require('dotenv').config();             // loads environment variables from the .env file, which includes "JWT_SECRET"    
 
-//require('dotenv') imports the dotenv library and .config() tells it to read the .env file 
+// require('dotenv') imports the dotenv library and .config() tells it to read the .env file 
 // and load the variables into process.env. 
 // This allows us to access process.env.JWT_SECRET later in the code, which is used to verify the JWT token.
 
