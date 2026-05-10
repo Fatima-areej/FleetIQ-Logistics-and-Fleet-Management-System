@@ -136,6 +136,70 @@ router.get('/forecast', auth, async (req, res) => {
     }
 });
 
+// GET /api/warehouses/overflow-alerts
+// For each warehouse forecast above 80% capacity, uses ST_Distance (PostGIS) to find
+// the nearest alternative warehouse still under 70% forecast load.
+router.get('/overflow-alerts', auth, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `WITH overloaded AS (
+                SELECT wlf.warehouse_id,
+                       wlf.warehouse_name,
+                       wlf.city,
+                       wlf.current_load_pct,
+                       wlf.forecast_load_pct,
+                       wlf.capacity_units,
+                       ST_Y(w.location::geometry) AS latitude,
+                       ST_X(w.location::geometry) AS longitude,
+                       w.location
+                FROM warehouse_load_forecast_view wlf
+                JOIN warehouses w ON w.warehouse_id = wlf.warehouse_id
+                WHERE wlf.org_id = $1
+                  AND wlf.forecast_load_pct >= 80
+            ),
+            candidates AS (
+                SELECT wlf.warehouse_id AS alt_warehouse_id,
+                       wlf.warehouse_name AS alt_name,
+                       wlf.city AS alt_city,
+                       wlf.forecast_load_pct AS alt_load_pct,
+                       wlf.capacity_units AS alt_capacity,
+                       w.location AS alt_location
+                FROM warehouse_load_forecast_view wlf
+                JOIN warehouses w ON w.warehouse_id = wlf.warehouse_id
+                WHERE wlf.org_id = $1
+                  AND wlf.forecast_load_pct < 70
+            )
+            SELECT
+                o.warehouse_id,
+                o.warehouse_name,
+                o.city,
+                ROUND(o.current_load_pct::numeric, 1)    AS current_load_pct,
+                ROUND(o.forecast_load_pct::numeric, 1)   AS forecast_load_pct,
+                o.capacity_units,
+                o.latitude,
+                o.longitude,
+                a.alt_warehouse_id,
+                a.alt_name,
+                a.alt_city,
+                ROUND(a.alt_load_pct::numeric, 1)        AS alt_load_pct,
+                a.alt_capacity,
+                ROUND((ST_Distance(o.location, a.alt_location) / 1000)::numeric, 1) AS distance_km
+            FROM overloaded o
+            CROSS JOIN LATERAL (
+                SELECT * FROM candidates a
+                ORDER BY ST_Distance(o.location, a.alt_location) ASC
+                LIMIT 1
+            ) a
+            ORDER BY o.forecast_load_pct DESC`,
+            [req.user.org_id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch overflow alerts.' });
+    }
+});
+
 // GET /api/warehouses/:id
 router.get('/:id', auth, async (req, res) => {
     try {

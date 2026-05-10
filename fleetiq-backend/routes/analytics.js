@@ -313,4 +313,29 @@ router.get('/warehouses', auth, async (req, res) => {
     }
 });
 
+// GET /api/analytics/delivery-heatmap
+// Uses PostGIS ST_SnapToGrid to bucket shipment destinations into ~11 km grid cells.
+// Returns { lat, lng, delivery_count } per cell for the heatmap layer on AdminMap.
+router.get('/delivery-heatmap', auth, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT
+                ST_X(ST_SnapToGrid(destination_location::geometry, 0.1)) AS lng,
+                ST_Y(ST_SnapToGrid(destination_location::geometry, 0.1)) AS lat,
+                COUNT(*)::INT AS delivery_count
+             FROM shipments
+             WHERE org_id = $1
+               AND destination_location IS NOT NULL
+               AND status NOT IN ('cancelled')
+             GROUP BY ST_SnapToGrid(destination_location::geometry, 0.1)
+             ORDER BY delivery_count DESC`,
+            [req.user.org_id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch delivery heatmap.' });
+    }
+});
+
 module.exports = router;

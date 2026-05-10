@@ -33,16 +33,24 @@ const vehicleMaintIcon = makeIcon('🔧', '#DC2626');
 const shipmentIcon     = makeIcon('📦', '#0284C7');
 
 export default function AdminMap() {
-    const [mapData,  setMapData]  = useState(null);
-    const [loading,  setLoading]  = useState(true);
-    const [showWh,   setShowWh]   = useState(true);
-    const [showVeh,  setShowVeh]  = useState(true);
-    const [showShip, setShowShip] = useState(true);
+    const [mapData,      setMapData]      = useState(null);
+    const [loading,      setLoading]      = useState(true);
+    const [showWh,       setShowWh]       = useState(true);
+    const [showVeh,      setShowVeh]      = useState(true);
+    const [showShip,     setShowShip]     = useState(true);
+    const [showHeatmap,  setShowHeatmap]  = useState(false);
+    const [heatmapData,  setHeatmapData]  = useState([]);
 
     const fetchData = () => {
         setLoading(true);
-        API.get('/geo/map-data')
-            .then(r => setMapData(r.data))
+        Promise.all([
+            API.get('/geo/map-data'),
+            API.get('/analytics/delivery-heatmap'),
+        ])
+            .then(([mapRes, hmRes]) => {
+                setMapData(mapRes.data);
+                setHeatmapData(hmRes.data || []);
+            })
             .catch(console.error)
             .finally(() => setLoading(false));
     };
@@ -53,7 +61,12 @@ export default function AdminMap() {
         warehouses: mapData?.warehouses?.length || 0,
         vehicles:   mapData?.vehicles?.length   || 0,
         shipments:  mapData?.shipments?.length  || 0,
+        heatmap:    heatmapData.length,
     };
+
+    const maxHeatCount = heatmapData.length
+        ? Math.max(...heatmapData.map(h => h.delivery_count))
+        : 1;
 
     const getVehicleIcon = (status) =>
         status === 'available'   ? vehicleAvailIcon :
@@ -130,11 +143,13 @@ export default function AdminMap() {
                 {/* layer toggles */}
                 {[
                     { key: 'wh',   label: 'Warehouses', count: counts.warehouses,
-                      color: '#4F46E5', val: showWh,   set: setShowWh   },
+                      color: '#4F46E5', val: showWh,      set: setShowWh      },
                     { key: 'veh',  label: 'Vehicles',   count: counts.vehicles,
-                      color: '#D97706', val: showVeh,  set: setShowVeh  },
+                      color: '#D97706', val: showVeh,     set: setShowVeh     },
                     { key: 'ship', label: 'Shipments',  count: counts.shipments,
-                      color: '#0284C7', val: showShip, set: setShowShip },
+                      color: '#0284C7', val: showShip,    set: setShowShip    },
+                    { key: 'heat', label: 'Density',    count: counts.heatmap,
+                      color: '#DC2626', val: showHeatmap, set: setShowHeatmap },
                 ].map(item => (
                     <button key={item.key}
                         onClick={() => item.set(v => !v)}
@@ -347,6 +362,33 @@ export default function AdminMap() {
                                 </Marker>
                             )
                         ))}
+
+                        {showHeatmap && heatmapData.map((h, i) => {
+                            const ratio  = h.delivery_count / maxHeatCount;
+                            const radius = 5000 + ratio * 45000;
+                            const opacity = 0.12 + ratio * 0.38;
+                            return h.lat && h.lng && (
+                                <Circle
+                                    key={`heat-${i}`}
+                                    center={[h.lat, h.lng]}
+                                    radius={radius}
+                                    color="#DC2626"
+                                    fillColor="#DC2626"
+                                    fillOpacity={opacity}
+                                    weight={0}
+                                >
+                                    <Popup>
+                                        <PopupCard
+                                            icon="🔥"
+                                            title={`${h.delivery_count} shipment${h.delivery_count !== 1 ? 's' : ''}`}
+                                            subtitle={`${h.lat?.toFixed(2)}°N, ${h.lng?.toFixed(2)}°E`}
+                                            color="#DC2626"
+                                            rows={[['Density cell', `~11 km grid`]]}
+                                        />
+                                    </Popup>
+                                </Circle>
+                            );
+                        })}
                     </MapContainer>
                 )}
 
@@ -359,12 +401,14 @@ export default function AdminMap() {
                     }}>
                         {[
                             { label: 'Warehouses',  value: counts.warehouses,
-                              color: '#4F46E5' },
+                              color: '#4F46E5', show: true },
                             { label: 'Vehicles',    value: counts.vehicles,
-                              color: '#D97706' },
+                              color: '#D97706', show: true },
                             { label: 'Shipments',   value: counts.shipments,
-                              color: '#0284C7' },
-                        ].map(s => (
+                              color: '#0284C7', show: true },
+                            { label: 'Density cells', value: counts.heatmap,
+                              color: '#DC2626', show: showHeatmap },
+                        ].filter(s => s.show).map(s => (
                             <div key={s.label} style={{
                                 padding: '6px 12px',
                                 background: 'rgba(255,255,255,0.92)',

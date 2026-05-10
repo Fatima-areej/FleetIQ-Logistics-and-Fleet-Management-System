@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { T } from '../../styles/theme';
 import API from '../../api/axios';
 import Badge from '../../components/ui/Badge';
@@ -95,6 +95,7 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
     const [assignMode,setAssignMode]= useState('direct'); // direct | via_warehouse
     const [assignWh,  setAssignWh]  = useState('');
     const [suggested, setSuggested] = useState(null);
+    const [delayRisk, setDelayRisk] = useState(null);
     const [assignMsg, setAssignMsg] = useState('');
 
     // create form
@@ -152,6 +153,31 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
         }
     }, [transferModal, transferWh, shipments]);
 
+    // Auto-fill origin warehouse from nearest when destination coordinates are entered.
+    // Uses a ref to read origin_warehouse_id without adding it to deps (avoids loop).
+    const originWhRef = useRef(newShip.origin_warehouse_id);
+    useEffect(() => { originWhRef.current = newShip.origin_warehouse_id; },
+              [newShip.origin_warehouse_id]);
+
+    useEffect(() => {
+        const lat = parseFloat(newShip.destination_lat);
+        const lng = parseFloat(newShip.destination_lng);
+        if (isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+        const timer = setTimeout(() => {
+            API.get(`/warehouses/nearest?lat=${lat}&lng=${lng}`)
+                .then(r => {
+                    if (r.data && !originWhRef.current) {
+                        setNewShip(prev => ({
+                            ...prev,
+                            origin_warehouse_id: r.data.warehouse_id.toString(),
+                        }));
+                    }
+                })
+                .catch(() => {});
+        }, 600);
+        return () => clearTimeout(timer);
+    }, [newShip.destination_lat, newShip.destination_lng]);
+
     const openDrawer = async (shipment_id) => {
         setDrawer(shipment_id);
         setDrawerLoad(true);
@@ -171,11 +197,12 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
         setSelD(''); setSelV('');
         setAssignMode('direct');
         setAssignWh('');
-        setAssignMsg(''); setSuggested(null);
-        const [dRes, vRes, sugRes] = await Promise.all([
+        setAssignMsg(''); setSuggested(null); setDelayRisk(null);
+        const [dRes, vRes, sugRes, riskRes] = await Promise.all([
             API.get('/drivers/available'),
             API.get('/vehicles/available'),
             API.get(`/shipments/${shipment_id}/suggest-assignment`).catch(() => ({ data: null })),
+            API.get(`/shipments/${shipment_id}/delay-risk`).catch(() => ({ data: null })),
         ]);
         setAvailD(dRes.data);
         setAvailV(vRes.data);
@@ -184,6 +211,7 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
             setSelD(sugRes.data.suggested_driver?.driver_id?.toString() || '');
             setSelV(sugRes.data.suggested_vehicle?.vehicle_id?.toString() || '');
         }
+        if (riskRes.data) setDelayRisk(riskRes.data);
     };
 
     const submitAssign = async () => {
@@ -728,24 +756,99 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
             {!readOnly && assignModal && (
                 <Modal title={`Assign Shipment #${assignModal}`}
                        onClose={() => setAssignModal(null)}>
-                    {suggested && (
-                        <div style={{
-                            padding: '10px 14px',
-                            background: T.accentLight,
-                            border: `1px solid ${T.accent}30`,
-                            borderRadius: T.radius,
-                            marginBottom: 16,
-                        }}>
-                            <p style={{ margin: '0 0 4px', fontSize: 12,
-                                        fontWeight: 600, color: T.accent }}>
-                                ✨ Smart suggestion
-                            </p>
-                            <p style={{ margin: 0, fontSize: 12,
-                                        color: T.textSec }}>
-                                {suggested.suggested_driver?.name} +{' '}
-                                {suggested.suggested_vehicle?.plate_number} —{' '}
-                                {suggested.reason}
-                            </p>
+                    {(delayRisk || suggested) && (
+                        <div style={{ marginBottom: 16, display: 'flex',
+                                      flexDirection: 'column', gap: 8 }}>
+
+                            {/* delay risk banner — only shown when risk is meaningful */}
+                            {delayRisk && ['high', 'overdue'].includes(delayRisk.risk_label) && (
+                                <div style={{
+                                    padding: '8px 12px',
+                                    background: T.dangerLight,
+                                    border: `1px solid ${T.danger}40`,
+                                    borderRadius: T.radius,
+                                    fontSize: 12, color: T.danger, fontWeight: 500,
+                                }}>
+                                    ⚠&nbsp;
+                                    {delayRisk.risk_label === 'overdue'
+                                        ? 'Already overdue'
+                                        : 'High delay risk'}
+                                    {delayRisk.avg_hours != null && delayRisk.hours_left != null && (
+                                        <span style={{ fontWeight: 400 }}>
+                                            {' '}— driver avg {delayRisk.avg_hours}h,{' '}
+                                            {delayRisk.hours_left > 0
+                                                ? `${delayRisk.hours_left}h remaining`
+                                                : 'deadline passed'}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* smart pick — shows actual values, not algorithm explanation */}
+                            {suggested && (suggested.suggested_driver || suggested.suggested_vehicle) && (
+                                <div style={{
+                                    padding: '10px 14px',
+                                    background: T.accentLight,
+                                    border: `1px solid ${T.accent}30`,
+                                    borderRadius: T.radius,
+                                }}>
+                                    <p style={{
+                                        margin: '0 0 10px', fontSize: 11,
+                                        fontWeight: 700, color: T.accent,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.07em',
+                                    }}>
+                                        ✨ Smart Pick — auto-applied
+                                    </p>
+                                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                                        {suggested.suggested_driver && (
+                                            <div>
+                                                <div style={{ fontSize: 10, color: T.textMuted,
+                                                              fontWeight: 700,
+                                                              textTransform: 'uppercase',
+                                                              letterSpacing: '0.06em',
+                                                              marginBottom: 2 }}>
+                                                    Driver
+                                                </div>
+                                                <div style={{ fontSize: 13, fontWeight: 600,
+                                                              color: T.textPri }}>
+                                                    {suggested.suggested_driver.name}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: T.textSec }}>
+                                                    ★ {suggested.suggested_driver.smart_score}
+                                                    {suggested.suggested_driver.completed_deliveries > 0 && (
+                                                        <> · {Math.round(
+                                                            (suggested.suggested_driver.on_time_deliveries /
+                                                             suggested.suggested_driver.completed_deliveries) * 100
+                                                        )}% on-time</>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {suggested.suggested_vehicle && (
+                                            <div>
+                                                <div style={{ fontSize: 10, color: T.textMuted,
+                                                              fontWeight: 700,
+                                                              textTransform: 'uppercase',
+                                                              letterSpacing: '0.06em',
+                                                              marginBottom: 2 }}>
+                                                    Vehicle
+                                                </div>
+                                                <div style={{ fontSize: 13, fontWeight: 600,
+                                                              color: T.textPri }}>
+                                                    {suggested.suggested_vehicle.plate_number}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: T.textSec }}>
+                                                    {suggested.suggested_vehicle.vehicle_type}
+                                                    {suggested.suggested_vehicle.distance_to_origin_km != null && (
+                                                        <> · {suggested.suggested_vehicle.distance_to_origin_km} km from origin</>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -816,11 +919,35 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
                                     onChange={setAssignWh}
                                     required
                                     placeholder="— select warehouse —"
-                                    options={transferWarehousesForAssign.map(w => ({
-                                        value: w.warehouse_id,
-                                        label: `${w.warehouse_name} — ${w.city}`,
-                                    }))}
+                                    options={[...transferWarehousesForAssign]
+                                        .sort((a, b) => {
+                                            const aGeo = suggested?.optimal_transfer_warehouses
+                                                ?.find(g => Number(g.warehouse_id) === Number(a.warehouse_id));
+                                            const bGeo = suggested?.optimal_transfer_warehouses
+                                                ?.find(g => Number(g.warehouse_id) === Number(b.warehouse_id));
+                                            if (aGeo && bGeo) return aGeo.total_route_km - bGeo.total_route_km;
+                                            if (aGeo) return -1;
+                                            if (bGeo) return 1;
+                                            return 0;
+                                        })
+                                        .map(w => {
+                                            const geo = suggested?.optimal_transfer_warehouses
+                                                ?.find(g => Number(g.warehouse_id) === Number(w.warehouse_id));
+                                            return {
+                                                value: w.warehouse_id,
+                                                label: geo
+                                                    ? `${w.warehouse_name} — ${w.city}  (${geo.total_route_km} km total route)`
+                                                    : `${w.warehouse_name} — ${w.city}`,
+                                            };
+                                        })
+                                    }
                                 />
+                                {suggested?.optimal_transfer_warehouses?.length > 0 && (
+                                    <p style={{ margin: '4px 0 0', fontSize: 11,
+                                                color: T.textMuted }}>
+                                        ✦ Route km = origin → stop + stop → destination, sorted shortest first
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -859,6 +986,13 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
                             label: `${w.warehouse_name} — ${w.city}`,
                         }))}
                     />
+                    {newShip.origin_warehouse_id &&
+                     newShip.destination_lat && newShip.destination_lng && (
+                        <p style={{ margin: '-8px 0 8px', fontSize: 11,
+                                    color: T.accent }}>
+                            ✦ Origin auto-selected from nearest warehouse to destination
+                        </p>
+                    )}
                     <FormInput
                         label="Destination Address"
                         value={newShip.destination_address}
@@ -1172,6 +1306,7 @@ function ShipmentDetail({ data, readOnly, managerLocked, onAssign, onCancel, onC
                     ['Driver',    shipment.driver_name  || '—'],
                     ['Vehicle',   shipment.plate_number || '—'],
                     ['Origin',    shipment.origin_warehouse || '—'],
+                    ['Distance',  shipment.distance_km != null ? `${shipment.distance_km} km` : '—'],
                     ['Delivery mode', deliveryModeLabel],
                     ['Transfer warehouse', transferWarehouseLabel],
                     ['Weight',    shipment.weight_kg ? `${shipment.weight_kg} kg` : '—'],

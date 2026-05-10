@@ -56,6 +56,9 @@ export default function AdminWarehouses() {
     const [assignModal, setAssignModal] = useState(null);
     const [selManager,  setSelManager]  = useState('');
 
+    // overflow alerts
+    const [overflowAlerts, setOverflowAlerts] = useState([]);
+
     // nearest
     const [nearestModal,setNearestModal]= useState(false);
     const [nearLat,     setNearLat]     = useState('');
@@ -80,12 +83,14 @@ export default function AdminWarehouses() {
     const fetchWarehouses = useCallback(async () => {
         try {
             setLoading(true);
-            const [whRes, mgrRes] = await Promise.all([
+            const [whRes, mgrRes, alertRes] = await Promise.all([
                 API.get('/warehouses'),
                 API.get('/org/users?role=manager'),
+                API.get('/warehouses/overflow-alerts').catch(() => ({ data: [] })),
             ]);
             setWarehouses(whRes.data);
             setManagers(mgrRes.data);
+            setOverflowAlerts(alertRes.data || []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -212,6 +217,45 @@ export default function AdminWarehouses() {
     return (
         <div style={{ animation: 'fadeIn 0.2s ease' }}>
             {msg && <Toast msg={msg} />}
+
+            {/* ── OVERFLOW ALERTS ── */}
+            {overflowAlerts.length > 0 && (
+                <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {overflowAlerts.map(a => (
+                        <div key={a.warehouse_id} style={{
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            padding: '10px 16px',
+                            background: '#FEF2F2',
+                            border: '1px solid #FECACA',
+                            borderRadius: T.radiusLg,
+                            fontSize: 13,
+                        }}>
+                            <span style={{ fontSize: 16 }}>⚠</span>
+                            <div style={{ flex: 1 }}>
+                                <span style={{ fontWeight: 700, color: '#DC2626' }}>
+                                    {a.warehouse_name}
+                                </span>
+                                <span style={{ color: '#7F1D1D' }}>
+                                    {' '}forecast at {a.forecast_load_pct}% capacity
+                                    {' '}(currently {a.current_load_pct}%).
+                                </span>
+                            </div>
+                            {a.alt_name && (
+                                <div style={{
+                                    fontSize: 12, color: '#166534', fontWeight: 600,
+                                    background: '#F0FDF4', border: '1px solid #BBF7D0',
+                                    borderRadius: T.radius, padding: '4px 10px',
+                                    whiteSpace: 'nowrap',
+                                }}>
+                                    Redirect to: {a.alt_name}, {a.alt_city}
+                                    {' '}· {a.alt_load_pct}% load
+                                    {' '}· {a.distance_km} km away
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* ── STATS ── */}
             <div style={{

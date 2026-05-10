@@ -89,6 +89,38 @@ router.post('/', auth, adminOnly, async (req, res) => {
     }
 });
 
+// PATCH /api/vehicles/:id/location — driver pushes live GPS position for their assigned vehicle
+router.patch('/:id/location', auth, async (req, res) => {
+    if (req.user.role !== 'driver') {
+        return res.status(403).json({ error: 'Driver access required.' });
+    }
+    const { latitude, longitude } = req.body;
+    if (latitude == null || longitude == null) {
+        return res.status(400).json({ error: 'latitude and longitude required.' });
+    }
+    try {
+        const check = await pool.query(
+            `SELECT 1 FROM driver_vehicle_assignments
+             WHERE driver_id = $1 AND vehicle_id = $2 AND is_active = TRUE`,
+            [req.user.driver_id, req.params.id]
+        );
+        if (check.rows.length === 0) {
+            return res.status(403).json({ error: 'You are not assigned to this vehicle.' });
+        }
+        await pool.query(
+            `UPDATE vehicles
+             SET current_location = ST_MakePoint($1, $2)::geography
+             WHERE vehicle_id = $3 AND org_id = $4`,
+            [parseFloat(longitude), parseFloat(latitude),
+             req.params.id, req.user.org_id]
+        );
+        res.json({ message: 'Location updated.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update location.' });
+    }
+});
+
 // PATCH /api/vehicles/:id — admin updates vehicle
 router.patch('/:id', auth, adminOnly, async (req, res) => {
     const { plate_number, vehicle_type, capacity_kg } = req.body;

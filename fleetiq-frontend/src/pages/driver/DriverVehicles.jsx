@@ -45,6 +45,7 @@ export default function DriverVehicles() {
     const [msg, setMsg] = useState(null);
     const [reqModal, setReqModal] = useState(null); // vehicle object
     const [reqNote, setReqNote] = useState('');
+    const [locatingId, setLocatingId] = useState(null);
 
     const showMsg = (text, good = true) => {
         setMsg({ text, good });
@@ -72,6 +73,34 @@ export default function DriverVehicles() {
     }, []);
 
     useEffect(() => { fetchVehicles(); }, [fetchVehicles]);
+
+    const shareLocation = (vehicleId) => {
+        if (!navigator.geolocation) {
+            showMsg('Geolocation is not supported by your browser.', false);
+            return;
+        }
+        setLocatingId(vehicleId);
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                try {
+                    await API.patch(`/vehicles/${vehicleId}/location`, {
+                        latitude:  pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                    });
+                    showMsg('Location shared successfully.');
+                } catch (err) {
+                    showMsg(err.response?.data?.error || 'Failed to share location.', false);
+                } finally {
+                    setLocatingId(null);
+                }
+            },
+            () => {
+                showMsg('Could not get your location. Check browser permissions.', false);
+                setLocatingId(null);
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    };
 
     const submitMaintenanceRequest = async () => {
         if (!reqModal?.vehicle_id) return;
@@ -149,13 +178,29 @@ export default function DriverVehicles() {
                                         {v.vehicle_type} · {v.vehicle_status}
                                     </div>
                                 </div>
-                                <div style={{ flexShrink: 0 }}>
+                                <div style={{ flexShrink: 0, display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <button
+                                        onClick={() => shareLocation(v.vehicle_id)}
+                                        disabled={locatingId === v.vehicle_id}
+                                        title="Share your current GPS location for this vehicle"
+                                        style={{
+                                            padding: '6px 12px',
+                                            fontSize: 12, fontWeight: 600,
+                                            borderRadius: T.radiusSm,
+                                            border: `1px solid #0284C740`,
+                                            background: locatingId === v.vehicle_id ? T.inputBg : '#0284C710',
+                                            color: locatingId === v.vehicle_id ? T.textMuted : '#0284C7',
+                                            cursor: locatingId === v.vehicle_id ? 'not-allowed' : 'pointer',
+                                            transition: 'all 0.15s',
+                                            display: 'flex', alignItems: 'center', gap: 5,
+                                        }}>
+                                        {locatingId === v.vehicle_id ? '...' : '📍'} Share location
+                                    </button>
                                     {activeReqByVehicle[v.vehicle_id] ? (
                                         <div style={{
                                             fontSize: 12,
                                             color: T.textMuted,
                                             fontWeight: 700,
-                                            textAlign: 'right',
                                         }}>
                                             Requested for maintenance
                                         </div>
