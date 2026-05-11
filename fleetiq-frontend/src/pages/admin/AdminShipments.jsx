@@ -919,35 +919,11 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
                                     onChange={setAssignWh}
                                     required
                                     placeholder="— select warehouse —"
-                                    options={[...transferWarehousesForAssign]
-                                        .sort((a, b) => {
-                                            const aGeo = suggested?.optimal_transfer_warehouses
-                                                ?.find(g => Number(g.warehouse_id) === Number(a.warehouse_id));
-                                            const bGeo = suggested?.optimal_transfer_warehouses
-                                                ?.find(g => Number(g.warehouse_id) === Number(b.warehouse_id));
-                                            if (aGeo && bGeo) return aGeo.total_route_km - bGeo.total_route_km;
-                                            if (aGeo) return -1;
-                                            if (bGeo) return 1;
-                                            return 0;
-                                        })
-                                        .map(w => {
-                                            const geo = suggested?.optimal_transfer_warehouses
-                                                ?.find(g => Number(g.warehouse_id) === Number(w.warehouse_id));
-                                            return {
-                                                value: w.warehouse_id,
-                                                label: geo
-                                                    ? `${w.warehouse_name} — ${w.city}  (${geo.total_route_km} km total route)`
-                                                    : `${w.warehouse_name} — ${w.city}`,
-                                            };
-                                        })
-                                    }
+                                    options={transferWarehousesForAssign.map(w => ({
+                                        value: w.warehouse_id,
+                                        label: `${w.warehouse_name} — ${w.city}`,
+                                    }))}
                                 />
-                                {suggested?.optimal_transfer_warehouses?.length > 0 && (
-                                    <p style={{ margin: '4px 0 0', fontSize: 11,
-                                                color: T.textMuted }}>
-                                        ✦ Route km = origin → stop + stop → destination, sorted shortest first
-                                    </p>
-                                )}
                             </div>
                         )}
                     </div>
@@ -986,13 +962,6 @@ export default function AdminShipments({ readOnly = false, managerLocked = false
                             label: `${w.warehouse_name} — ${w.city}`,
                         }))}
                     />
-                    {newShip.origin_warehouse_id &&
-                     newShip.destination_lat && newShip.destination_lng && (
-                        <p style={{ margin: '-8px 0 8px', fontSize: 11,
-                                    color: T.accent }}>
-                            ✦ Origin auto-selected from nearest warehouse to destination
-                        </p>
-                    )}
                     <FormInput
                         label="Destination Address"
                         value={newShip.destination_address}
@@ -1306,7 +1275,6 @@ function ShipmentDetail({ data, readOnly, managerLocked, onAssign, onCancel, onC
                     ['Driver',    shipment.driver_name  || '—'],
                     ['Vehicle',   shipment.plate_number || '—'],
                     ['Origin',    shipment.origin_warehouse || '—'],
-                    ['Distance',  shipment.distance_km != null ? `${shipment.distance_km} km` : '—'],
                     ['Delivery mode', deliveryModeLabel],
                     ['Transfer warehouse', transferWarehouseLabel],
                     ['Weight',    shipment.weight_kg ? `${shipment.weight_kg} kg` : '—'],

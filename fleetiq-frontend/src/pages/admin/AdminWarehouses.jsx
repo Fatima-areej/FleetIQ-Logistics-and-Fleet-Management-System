@@ -65,6 +65,7 @@ export default function AdminWarehouses() {
     const [nearLng,     setNearLng]     = useState('');
     const [nearResult,  setNearResult]  = useState(null);
     const [nearLoad,    setNearLoad]    = useState(false);
+    const [nearGpsLoad, setNearGpsLoad] = useState(false);
 
     // forms
     const [newWh, setNewWh] = useState({
@@ -167,6 +168,27 @@ export default function AdminWarehouses() {
         } catch (err) {
             showMsg('Failed.', false);
         }
+    };
+
+    const useGps = () => {
+        if (!navigator.geolocation) {
+            showMsg('Geolocation is not supported by your browser.', false);
+            return;
+        }
+        setNearGpsLoad(true);
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const lat = pos.coords.latitude.toFixed(6);
+                const lng = pos.coords.longitude.toFixed(6);
+                setNearLat(lat);
+                setNearLng(lng);
+                setNearGpsLoad(false);
+            },
+            () => {
+                showMsg('Location access denied or unavailable.', false);
+                setNearGpsLoad(false);
+            }
+        );
     };
 
     const findNearest = async () => {
@@ -755,11 +777,26 @@ export default function AdminWarehouses() {
             {nearestModal && (
                 <Modal title="📍 Find Nearest Warehouse"
                        onClose={() => setNearestModal(false)}>
-                    <p style={{ margin: '0 0 16px', fontSize: 13,
+                    <p style={{ margin: '0 0 12px', fontSize: 13,
                                 color: T.textSec }}>
                         Enter a location's coordinates to find the closest
                         warehouse in your organization.
                     </p>
+                    <button
+                        onClick={useGps}
+                        disabled={nearGpsLoad}
+                        style={{
+                            width: '100%', marginBottom: 12,
+                            padding: '9px 14px',
+                            background: nearGpsLoad ? T.pageBg : T.accentLight,
+                            border: `1px solid ${T.accent}40`,
+                            borderRadius: T.radius, cursor: nearGpsLoad ? 'default' : 'pointer',
+                            fontSize: 13, fontWeight: 600, color: T.accent,
+                            fontFamily: T.fontBody, transition: 'all 0.15s',
+                        }}
+                    >
+                        {nearGpsLoad ? '⏳ Getting location…' : '📍 Use my current location'}
+                    </button>
                     <div style={{ display: 'grid',
                                   gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <FormInput

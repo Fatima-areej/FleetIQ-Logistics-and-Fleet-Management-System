@@ -1,5 +1,15 @@
+/*
+
+This file defines the main App component which sets up routing for the entire application.
+
+*/
+
+// It uses React Router for client-side routing,
+// and an AuthProvider to manage authentication state across the app.
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -30,7 +40,7 @@ import DriverShipments  from './pages/driver/DriverShipments';
 import DriverVehicles   from './pages/driver/DriverVehicles';
 
 function RoleRedirect() {
-    const { user } = useAuth();
+    const { user } = useAuth(); // get current user from auth context
     if (!user) return <Navigate to="/login" replace />;
     if (user.role === 'admin')   return <Navigate to="/admin"   replace />;
     if (user.role === 'manager') return <Navigate to="/manager/dashboard" replace />;

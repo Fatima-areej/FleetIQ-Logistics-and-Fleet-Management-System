@@ -1,7 +1,8 @@
 /**
- * FleetIQ light theme — professional SaaS + subtle indigo identity.
- * Use T.* everywhere; avoid hardcoded dark hex in new UI.
+  FleetIQ light theme — professional SaaS + subtle indigo identity.
+  Use T.* everywhere in the app instead of hardcoding colors, spacing, etc.
  */
+
 export const T = {
     // surfaces
     pageBg:         '#EEF2FF',

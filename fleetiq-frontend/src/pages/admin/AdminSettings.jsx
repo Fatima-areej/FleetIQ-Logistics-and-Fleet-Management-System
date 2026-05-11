@@ -180,52 +180,6 @@ export default function AdminSettings() {
                 </div>
             </Card>
 
-            {/* ── DATABASE CONCEPTS ── */}
-            <Card>
-                <SectionTitle
-                    title="System features"
-                    sub="Advanced database concepts implemented in FleetIQ"
-                />
-                <div style={{ display: 'grid',
-                              gridTemplateColumns: '1fr 1fr',
-                              gap: 10 }}>
-                    {[
-                        { icon: '⚡', label: 'Triggers',
-                          desc: '4 auto-firing DB triggers for status logging, notifications, vehicle sync, warehouse load' },
-                        { icon: '🔧', label: 'Stored Procedures',
-                          desc: '5 procedures — assign shipment, complete delivery, transfer warehouse, nearest warehouse, rate calculation' },
-                        { icon: '👁', label: 'Views',
-                          desc: '6 analytical views — active shipments, driver performance, fleet utilization, warehouse throughput, delayed shipments, driver-manager assignments' },
-                        { icon: '🗺', label: 'Geo-Spatial',
-                          desc: 'PostGIS geography columns with GIST indexes — nearest warehouse query, vehicle/shipment mapping' },
-                        { icon: '🔒', label: 'Row Level Security',
-                          desc: 'PostgreSQL RLS policies per role — drivers see only their own shipments' },
-                        { icon: '📊', label: 'Indexes',
-                          desc: '20+ B-tree indexes on FK and filter columns, GIST indexes on geography columns' },
-                    ].map(f => (
-                        <div key={f.label} style={{
-                            padding: '12px',
-                            background: T.pageBg,
-                            borderRadius: T.radius,
-                            display: 'flex', gap: 10,
-                        }}>
-                            <span style={{ fontSize: 20, flexShrink: 0 }}>
-                                {f.icon}
-                            </span>
-                            <div>
-                                <div style={{ fontSize: 13, fontWeight: 600,
-                                              color: T.textPri, marginBottom: 3 }}>
-                                    {f.label}
-                                </div>
-                                <div style={{ fontSize: 11, color: T.textMuted,
-                                              lineHeight: 1.5 }}>
-                                    {f.desc}
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </Card>
         </div>
     );
 }

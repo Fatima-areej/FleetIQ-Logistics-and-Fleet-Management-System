@@ -1,17 +1,25 @@
+/*
+react hooks:
+useState: to store changing data inside a component
+useEffect: to run code automatically when component loads, or data changes 
+useRef: stores a reference to something without re-rendering.
+
+*/
+
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';         //for navigation between pages
 import { useAuth } from '../context/AuthContext';
 import API from '../api/axios';
 import { T } from '../styles/theme';
 
-// ── animated network canvas ──────────────────────────────────
-function NetworkCanvas() {
-    const canvasRef = useRef(null);
+//animated network canvas 
+function NetworkCanvas() {                          //creates a React component
+    const canvasRef = useRef(null);     //reference to the canvas DOM element
 
-    useEffect(() => {
+    useEffect(() => {           //runs once when component mounts, sets up the canvas animation
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d');        //ctx is drawing tool
         let animId;
         let W, H;
 
@@ -20,32 +28,32 @@ function NetworkCanvas() {
             H = canvas.height = canvas.offsetHeight;
         };
         resize();
-        window.addEventListener('resize', resize);
+        window.addEventListener('resize', resize);  //if browser window resizes, adjust canvas size accordingly
 
         // nodes
         const COUNT = 38;
         const nodes = Array.from({ length: COUNT }, () => ({
-            x:   Math.random() * W,
-            y:   Math.random() * H,
-            vx:  (Math.random() - 0.5) * 0.4,
-            vy:  (Math.random() - 0.5) * 0.4,
-            r:   Math.random() * 2.5 + 1.5,
-            pulse: Math.random() * Math.PI * 2,
-            pulseSpeed: 0.015 + Math.random() * 0.02,
+            x:   Math.random() * W,                 //x position
+            y:   Math.random() * H,                 //y position
+            vx:  (Math.random() - 0.5) * 0.4,       //horizontal velocity
+            vy:  (Math.random() - 0.5) * 0.4,       //vertical velocity
+            r:   Math.random() * 2.5 + 1.5,         //radius
+            pulse: Math.random() * Math.PI * 2,     //glow animation phase 
+            pulseSpeed: 0.015 + Math.random() * 0.02,   //glow animation speed
         }));
 
         // shipment packets traveling along edges
         const packets = Array.from({ length: 8 }, () => ({
-            fromIdx: Math.floor(Math.random() * COUNT),
-            toIdx:   Math.floor(Math.random() * COUNT),
-            t:       Math.random(),
-            speed:   0.003 + Math.random() * 0.004,
+            fromIdx: Math.floor(Math.random() * COUNT),     //start node index
+            toIdx:   Math.floor(Math.random() * COUNT),     //end node index
+            t:       Math.random(),                         //travel progress along the edge
+            speed:   0.003 + Math.random() * 0.004,         //speed of the packet
         }));
 
-        const CONNECT_DIST = 160;
+        const CONNECT_DIST = 160;   //nodes only connect is close enough
         const ACCENT = '79, 70, 229'; // indigo rgb
 
-        const draw = () => {
+        const draw = () => {            //main animation loop that runs continously 
             ctx.clearRect(0, 0, W, H);
 
             // grid lines background
@@ -65,9 +73,9 @@ function NetworkCanvas() {
 
             // update + draw nodes
             nodes.forEach(n => {
-                n.x += n.vx; n.y += n.vy;
+                n.x += n.vx; n.y += n.vy;       //move nodes 
                 n.pulse += n.pulseSpeed;
-                if (n.x < 0 || n.x > W) n.vx *= -1;
+                if (n.x < 0 || n.x > W) n.vx *= -1;     //bounce if edge
                 if (n.y < 0 || n.y > H) n.vy *= -1;
             });
 
@@ -75,10 +83,10 @@ function NetworkCanvas() {
             for (let i = 0; i < COUNT; i++) {
                 for (let j = i + 1; j < COUNT; j++) {
                     const dx = nodes[i].x - nodes[j].x;
-                    const dy = nodes[i].y - nodes[j].y;
+                    const dy = nodes[i].y - nodes[j].y;             //calculate distance bw nodes and compare with connect_dist
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist < CONNECT_DIST) {
-                        const alpha = (1 - dist / CONNECT_DIST) * 0.25;
+                        const alpha = (1 - dist / CONNECT_DIST) * 0.25;     //closer node brighter line
                         ctx.strokeStyle = `rgba(${ACCENT},${alpha})`;
                         ctx.lineWidth = 0.8;
                         ctx.beginPath();
@@ -151,7 +159,8 @@ function NetworkCanvas() {
     );
 }
 
-// ── stat ticker ──────────────────────────────────────────────
+
+// stat ticker
 function StatTicker() {
     const stats = [
         { label: 'Active shipments',   value: '2,847'  },
@@ -226,7 +235,7 @@ function signupInputSx(isFocused) {
     };
 }
 
-// ── main login component ─────────────────────────────────────
+// main login component 
 export default function Login() {
     const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
 
@@ -436,7 +445,7 @@ export default function Login() {
                         marginBottom: '1.25rem',
                         letterSpacing: '-0.02em',
                     }}>
-                        Smart<br />
+                        Fleet and<br />
                         <span style={{
                             background: `linear-gradient(120deg, ${T.accent} 0%, ${T.accentMuted} 100%)`,
                             WebkitBackgroundClip: 'text',
@@ -963,15 +972,6 @@ export default function Login() {
 
                 </div>{/* end auto-margin centering wrapper */}
 
-                {/* bottom corner label */}
-                <div style={{
-                    position: 'absolute', bottom: '1.5rem', right: '1.5rem',
-                    fontSize: 10, color: T.textMuted,
-                    letterSpacing: '0.08em',
-                    fontFamily: T.fontBody,
-                }}>
-                    FLEETIQ v1.0 · ADBMS PROJECT
-                </div>
             </div>
             </div>
         </div>
