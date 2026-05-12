@@ -162,14 +162,26 @@ function NetworkCanvas() {                          //creates a React component
 
 // stat ticker
 function StatTicker() {
-    const stats = [
-        { label: 'Active shipments',   value: '2,847'  },
-        { label: 'Fleet vehicles',     value: '143'    },
-        { label: 'Warehouses online',  value: '28'     },
-        { label: 'Deliveries today',   value: '391'    },
-    ];
+    const [stats, setStats] = useState([
+        { label: 'Active shipments',  value: '—' },
+        { label: 'Fleet vehicles',    value: '—' },
+        { label: 'Warehouses online', value: '—' },
+        { label: 'Deliveries today',  value: '—' },
+    ]);
     const [idx, setIdx] = useState(0);
     const [visible, setVisible] = useState(true);
+
+    useEffect(() => {
+        fetch('http://localhost:5000/api/analytics/public-stats')
+            .then(r => r.json())
+            .then(d => setStats([
+                { label: 'Active shipments',  value: d.active_shipments.toLocaleString()  },
+                { label: 'Fleet vehicles',    value: d.fleet_vehicles.toLocaleString()    },
+                { label: 'Warehouses online', value: d.warehouses_online.toLocaleString() },
+                { label: 'Deliveries today',  value: d.deliveries_today.toLocaleString()  },
+            ]))
+            .catch(() => {});
+    }, []);
 
     useEffect(() => {
         const interval = setInterval(() => {

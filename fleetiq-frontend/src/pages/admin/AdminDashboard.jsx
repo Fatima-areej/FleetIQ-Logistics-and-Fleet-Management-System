@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-    Tooltip, ResponsiveContainer, PieChart, Pie,
-    Cell, Legend
+    Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { T } from '../../styles/theme';
 import KpiCard from '../../components/ui/KpiCard';
@@ -11,10 +10,6 @@ import CustomTooltip from '../../components/charts/CustomTooltip';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import API from '../../api/axios';
 
-const PIE_COLORS = [
-    T.accent, T.success, T.warning,
-    T.danger, '#7C3AED', '#0284C7'
-];
 
 function SectionHeader({ title, sub, action }) {
     return (
@@ -209,37 +204,87 @@ export default function AdminDashboard() {
                     </ResponsiveContainer>
                 </Card>
 
-                {/* status pie */}
+                {/* shipment pipeline */}
                 <Card>
                     <SectionHeader
-                        title="Status breakdown"
-                        sub="All shipments by current status"
+                        title="Shipment pipeline"
+                        sub="Distribution across all statuses"
                     />
-                    <ResponsiveContainer width="100%" height={220}>
-                        <PieChart>
-                            <Pie
-                                data={data?.statusBreakdown || []}
-                                dataKey="count"
-                                nameKey="status"
-                                cx="50%" cy="50%"
-                                innerRadius={52}
-                                outerRadius={80}
-                                paddingAngle={3}
-                            >
-                                {(data?.statusBreakdown || []).map((_, i) => (
-                                    <Cell key={i}
-                                        fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                                ))}
-                            </Pie>
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend
-                                wrapperStyle={{
-                                    fontSize: 11,
-                                    color: T.textSec,
-                                }}
-                            />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    {(() => {
+                        const ORDER = [
+                            'assigned', 'in_transit', 'at_warehouse',
+                            'out_for_delivery', 'delivered', 'cancelled', 'created',
+                        ];
+                        const breakdown = data?.statusBreakdown || [];
+                        const total = breakdown.reduce((s, r) => s + parseInt(r.count), 0);
+                        const sorted = ORDER
+                            .map(st => breakdown.find(r => r.status === st))
+                            .filter(Boolean)
+                            .concat(breakdown.filter(r => !ORDER.includes(r.status)));
+                        return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {sorted.length === 0 ? (
+                                    <p style={{ color: T.textMuted, fontSize: 13,
+                                                textAlign: 'center', padding: '1.5rem 0' }}>
+                                        No shipment data yet
+                                    </p>
+                                ) : sorted.map((r, i) => {
+                                    const pct = total > 0
+                                        ? Math.round((parseInt(r.count) / total) * 100) : 0;
+                                    const s = T.status[r.status] || { color: T.textSec, label: r.status };
+                                    return (
+                                        <div key={i}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between',
+                                                          alignItems: 'center', marginBottom: 5 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                    <span style={{
+                                                        width: 8, height: 8, borderRadius: '50%',
+                                                        background: s.color,
+                                                        display: 'inline-block', flexShrink: 0,
+                                                    }} />
+                                                    <span style={{ fontSize: 12, color: T.textSec }}>
+                                                        {s.label || r.status.replace(/_/g, ' ')}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span style={{ fontSize: 12, fontWeight: 700,
+                                                                   color: T.textPri }}>
+                                                        {parseInt(r.count).toLocaleString()}
+                                                    </span>
+                                                    <span style={{ fontSize: 11, color: T.textMuted,
+                                                                   minWidth: 30, textAlign: 'right' }}>
+                                                        {pct}%
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div style={{ background: T.pageBg,
+                                                          borderRadius: T.radiusFull, height: 5 }}>
+                                                <div style={{
+                                                    width: `${pct}%`, height: 5,
+                                                    borderRadius: T.radiusFull,
+                                                    background: s.color,
+                                                    transition: 'width 0.7s ease',
+                                                }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {total > 0 && (
+                                    <div style={{ marginTop: 4, paddingTop: 10,
+                                                  borderTop: `1px solid ${T.border}`,
+                                                  display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ fontSize: 11, color: T.textMuted }}>
+                                            Total shipments
+                                        </span>
+                                        <span style={{ fontSize: 12, fontWeight: 700,
+                                                       color: T.textPri }}>
+                                            {total.toLocaleString()}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </Card>
             </div>
 

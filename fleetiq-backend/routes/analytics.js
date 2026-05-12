@@ -17,6 +17,32 @@ const managerOnlyAnalytics = (req, res, next) => {
     next();
 };
 
+// GET /api/analytics/public-stats — no auth, aggregates across all orgs for the login page ticker
+router.get('/public-stats', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                (SELECT COUNT(*) FROM shipments
+                 WHERE status NOT IN ('delivered','cancelled')) AS active_shipments,
+                (SELECT COUNT(*) FROM vehicles)                  AS fleet_vehicles,
+                (SELECT COUNT(*) FROM warehouses)               AS warehouses_online,
+                (SELECT COUNT(*) FROM shipments
+                 WHERE status = 'delivered'
+                   AND DATE(delivered_at) = CURRENT_DATE)      AS deliveries_today
+        `);
+        const r = result.rows[0];
+        res.json({
+            active_shipments:  parseInt(r.active_shipments),
+            fleet_vehicles:    parseInt(r.fleet_vehicles),
+            warehouses_online: parseInt(r.warehouses_online),
+            deliveries_today:  parseInt(r.deliveries_today),
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch public stats.' });
+    }
+});
+
 // GET /api/analytics/manager-dashboard — stats scoped to warehouses assigned to this manager
 
 //  - One CTE query computes all scalar totals + aggregated arrays in a single pass
