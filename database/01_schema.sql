@@ -26,6 +26,18 @@ CREATE TYPE driver_status_enum AS ENUM
 CREATE TYPE maintenance_type_enum AS ENUM
 ('routine','repair','inspection','emergency');
 
+CREATE TYPE delivery_mode_enum AS ENUM 
+('direct', 'via_warehouse');
+
+CREATE TYPE maintenance_source_enum AS ENUM 
+('driver','admin');
+
+CREATE TYPE maintenance_request_status_enum AS ENUM 
+('assigned','in_progress','resolved','cancelled');
+
+CREATE TYPE maintenance_priority_enum AS ENUM 
+('low','normal','high','urgent');
+
 
 ---------------------------------------------------
 ------------------ Schema -------------------------
@@ -131,7 +143,9 @@ CREATE TABLE shipments (
     priority             priority_enum DEFAULT 'normal',
     created_at           TIMESTAMP DEFAULT NOW(),
     estimated_delivery   TIMESTAMP,
-    delivered_at         TIMESTAMP
+    delivered_at         TIMESTAMP,
+	delivery_mode 		 delivery_mode_enum NOT NULL DEFAULT 'direct',
+	transfer_warehouse_id INT REFERENCES warehouses(warehouse_id)
 );
 
 -- 9. shipment_items
@@ -203,4 +217,24 @@ CREATE TABLE memos (
     is_read      BOOLEAN DEFAULT FALSE,
     parent_memo_id INT REFERENCES memos(memo_id),
     created_at   TIMESTAMP DEFAULT NOW()
+);
+
+-- 15. maintenance requests
+
+CREATE TABLE maintenance_requests (
+  request_id     		SERIAL PRIMARY KEY,
+  org_id         		INT NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+  vehicle_id     		INT NOT NULL REFERENCES vehicles(vehicle_id) ON DELETE CASCADE,
+  requested_by   		INT NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
+  source         		maintenance_source_enum NOT NULL,
+  shipment_id    		INT REFERENCES shipments(shipment_id) ON DELETE SET NULL,
+  warehouse_id   		INT REFERENCES warehouses(warehouse_id) ON DELETE SET NULL,
+  assigned_manager_id 	INT REFERENCES users(user_id) ON DELETE SET NULL,
+  status         		maintenance_request_status_enum NOT NULL DEFAULT 'assigned',
+  priority      maintenance_priority_enum NOT NULL DEFAULT 'normal',
+  title               TEXT,
+  description         TEXT,
+  created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+  resolved_at         TIMESTAMP
 );

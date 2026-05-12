@@ -24,9 +24,14 @@ CREATE INDEX idx_maintenance_veh    ON vehicle_maintenance(vehicle_id);
 CREATE INDEX idx_notif_user         ON notifications(user_id, is_read);
 CREATE INDEX idx_mwa_manager        ON manager_warehouse_assignments(manager_id);
 CREATE INDEX idx_mwa_warehouse      ON manager_warehouse_assignments(warehouse_id);
-CREATE INDEX idx_memos_receiver ON memos(receiver_id);
-CREATE INDEX idx_memos_sender   ON memos(sender_id);
-CREATE INDEX idx_memos_org      ON memos(org_id);
+CREATE INDEX idx_memos_receiver 	ON memos(receiver_id);
+CREATE INDEX idx_memos_sender   	ON memos(sender_id);
+CREATE INDEX idx_memos_org      	ON memos(org_id);
+CREATE INDEX idx_mr_org        		ON maintenance_requests(org_id);
+CREATE INDEX idx_mr_vehicle    		ON maintenance_requests(vehicle_id);
+CREATE INDEX idx_mr_status     		ON maintenance_requests(status);
+CREATE INDEX idx_mr_manager    		ON maintenance_requests(assigned_manager_id);
+CREATE INDEX idx_mr_created_at 		ON maintenance_requests(created_at);
 
 -- GIST indexes (geo-spatial)
 CREATE INDEX idx_warehouse_location   ON warehouses USING GIST(location);

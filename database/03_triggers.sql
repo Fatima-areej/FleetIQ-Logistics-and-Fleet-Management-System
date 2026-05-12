@@ -11,11 +11,7 @@ RETURNS TRIGGER AS $$
 BEGIN
     IF OLD.status IS DISTINCT FROM NEW.status THEN
         INSERT INTO shipment_status_history (
-            shipment_id,
-            status,
-            notes,
-            updated_by,
-            changed_at
+            shipment_id, status, notes, updated_by, changed_at
         ) VALUES (
             NEW.shipment_id,
             NEW.status,
@@ -98,28 +94,30 @@ EXECUTE FUNCTION fn_notify_on_status_change();
 CREATE OR REPLACE FUNCTION fn_sync_on_delivery_complete()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.status IN ('delivered', 'cancelled') THEN
+  IF NEW.status IN ('delivered', 'cancelled') THEN
 
-        -- free the vehicle
-        UPDATE vehicles
-        SET status = 'available'
-        WHERE vehicle_id = NEW.vehicle_id;
+    -- free the vehicle ONLY if it isn't in maintenance
+    UPDATE vehicles
+    SET status = 'available'
+    WHERE vehicle_id = NEW.vehicle_id
+      AND status <> 'maintenance';    --newly added 
 
-        -- free the driver
-        UPDATE drivers
-        SET availability_status = 'available'
-        WHERE driver_id = NEW.driver_id;
+    -- free the driver
+    UPDATE drivers
+    SET availability_status = 'available'
+    WHERE driver_id = NEW.driver_id;
 
-        -- deactivate the driver-vehicle assignment
-        UPDATE driver_vehicle_assignments
-        SET is_active = FALSE,
-            end_date  = CURRENT_DATE
-        WHERE driver_id  = NEW.driver_id
-          AND vehicle_id = NEW.vehicle_id
-          AND is_active  = TRUE;
+    -- deactivate the driver-vehicle assignment
+    UPDATE driver_vehicle_assignments
+    SET is_active = FALSE,
+        end_date  = CURRENT_DATE
+    WHERE driver_id  = NEW.driver_id
+      AND vehicle_id = NEW.vehicle_id
+      AND is_active  = TRUE;
 
-    END IF;
-    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -168,11 +166,6 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_sender_name TEXT;
 BEGIN
-    -- Thread replies appear in Memos; notify only on new top-level memos
-    IF NEW.parent_memo_id IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
     -- get sender name for a meaningful message
     SELECT name INTO v_sender_name
     FROM users WHERE user_id = NEW.sender_id;
@@ -196,4 +189,39 @@ CREATE TRIGGER trg_notify_on_memo
 AFTER INSERT ON memos
 FOR EACH ROW
 EXECUTE FUNCTION fn_notify_on_memo();
+
+
+--			Trigger 6
+-- 			Enforce: a driver can have only ONE active shipment at a time
+-- 			Active = status NOT IN ('delivered','cancelled')
+
+CREATE OR REPLACE FUNCTION fn_enforce_one_active_shipment_per_driver()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only enforce when shipment is active and has a driver
+    IF NEW.driver_id IS NOT NULL
+       AND NEW.status NOT IN ('delivered','cancelled') THEN
+
+        IF EXISTS (
+            SELECT 1
+            FROM shipments s
+            WHERE s.driver_id = NEW.driver_id
+              AND s.status NOT IN ('delivered','cancelled')
+              AND s.shipment_id <> COALESCE(NEW.shipment_id, -1)
+        ) THEN
+            RAISE EXCEPTION
+                'Driver % already has an active shipment.',
+                NEW.driver_id
+            USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_one_active_shipment_per_driver
+BEFORE INSERT OR UPDATE OF driver_id, status ON shipments
+FOR EACH ROW
+EXECUTE FUNCTION fn_enforce_one_active_shipment_per_driver();
 

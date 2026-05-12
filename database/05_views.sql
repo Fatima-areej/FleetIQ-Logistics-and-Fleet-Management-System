@@ -6,8 +6,6 @@
 --			All shipments that are currently active.
 
 
-DROP VIEW IF EXISTS active_shipments_view CASCADE;
-
 CREATE VIEW active_shipments_view AS
 SELECT
     s.shipment_id,
@@ -87,7 +85,7 @@ SELECT
     v.plate_number,
     v.vehicle_type,
     v.capacity_kg,
-    v.status                             AS current_status,
+    v.status                              AS current_status,
     COALESCE(s_agg.total_trips,        0) AS total_trips,
     COALESCE(vm_agg.total_cost,        0) AS total_maintenance_cost,
     COALESCE(mr_agg.maintenance_count, 0) AS maintenance_count,
@@ -105,7 +103,7 @@ LEFT JOIN (
 ) vm_agg ON vm_agg.vehicle_id = v.vehicle_id
 LEFT JOIN (
     SELECT vehicle_id,
-           COUNT(*)    AS maintenance_count,
+           COUNT(*)        AS maintenance_count,
            MAX(created_at) AS last_maintenance_date
     FROM maintenance_requests
     GROUP BY vehicle_id
@@ -175,7 +173,7 @@ ORDER BY s.estimated_delivery ASC;
 CREATE OR REPLACE VIEW driver_managers_view AS
 SELECT DISTINCT
     d.driver_id,
-    d.user_id AS driver_user_id,
+    d.user_id     AS driver_user_id,
     u_mgr.user_id AS manager_user_id,
     u_mgr.name    AS manager_name
 FROM drivers d
@@ -184,5 +182,4 @@ JOIN warehouses w ON w.warehouse_id = s.origin_warehouse_id
 JOIN manager_warehouse_assignments mwa
     ON mwa.warehouse_id = w.warehouse_id AND mwa.is_active = TRUE
 JOIN users u_mgr ON u_mgr.user_id = mwa.manager_id;
-
 

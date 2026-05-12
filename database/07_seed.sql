@@ -250,5 +250,3 @@ INSERT INTO warehouse_shipments (shipment_id, warehouse_id, arrival_time, depart
 (42, 7, NOW()-INTERVAL'8 days',  NOW()-INTERVAL'7 days',          'Karachi to Islamabad route stop');
 
 
-
-----------------------------------------------------------------------------------

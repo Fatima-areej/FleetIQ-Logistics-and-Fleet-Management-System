@@ -1,15 +1,8 @@
--- ==========================================================
--- FleetIQ  —  Geospatial & Smart Intelligence Extensions
--- ==========================================================
--- Adds three database-level features used by the API layer:
---
---   1. warehouses_within_radius()  — PostGIS ST_DWithin proximity search
---   2. predict_shipment_delay()    — risk score from driver history vs deadline
---   3. warehouse_load_forecast_view — pending-inbound count per warehouse
--- ==========================================================
+-- Geospatial & Smart Intelligence Extensions
 
 
--- ── 1. Proximity Search ─────────────────────────────────────
+-- 1. Proximity Search
+
 -- Returns every warehouse within p_km kilometres of a given
 -- lat/lng point, ordered nearest-first.
 -- Uses ST_DWithin for index-assisted radius filtering (fast on
@@ -57,7 +50,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 
--- ── 2. Predictive Delay Risk ────────────────────────────────
+-- 2. Predictive Delay Risk 
 -- Compares a driver's historical avg_delivery_hours (from
 -- driver_performance_view) against the remaining delivery
 -- window and returns a risk_score (0.0–1.0) and a label.
@@ -129,7 +122,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 
--- ── 3. Warehouse Load Forecast View ────────────────────────
+-- 3. Warehouse Load Forecast View
 -- Shows each warehouse's current occupancy AND how many
 -- inbound shipments (via_warehouse, not yet arrived) are
 -- heading towards it.  forecast_load_pct projects utilisation
@@ -159,15 +152,10 @@ GROUP BY w.warehouse_id, w.org_id, w.name, w.city,
          w.capacity_units, w.current_load;
 
 
--- ── 4. Optimal Transfer Warehouse ───────────────────────────
+-- 4. Optimal Transfer Warehouse 
 -- Ranks candidate transfer warehouses by TOTAL ROUTE LENGTH:
 --   origin → transfer warehouse  +  transfer warehouse → destination
--- This is better than just "nearest to destination" because a warehouse
--- that is slightly farther from the destination but much closer to the
--- origin can save significant total distance.
---
--- Excludes: the origin warehouse itself, full warehouses, warehouses
--- with no GPS coordinate.
+
 
 CREATE OR REPLACE FUNCTION optimal_transfer_warehouses(
     p_origin_warehouse_id INT,
@@ -222,3 +210,4 @@ LANGUAGE sql STABLE AS $$
       AND w.current_load        <  w.capacity_units
     ORDER BY total_route_km ASC;
 $$;
+*/
